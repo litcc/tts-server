@@ -35,3 +35,24 @@ pub fn get_system_ca_config() -> ClientConfig {
         .with_no_client_auth();
     return config;
 }
+
+// 二进制数组查询
+pub fn binary_search(bin: &[u8], search: &[u8]) -> Option<usize> {
+    if bin.len() > usize::MAX - search.len() {
+        panic!("binary_search: length overflow");
+    }
+    let mut i = 0;
+    let mut j = 0;
+    let k: usize = bin.len() - search.len();
+    loop {
+        if i >= k {
+            break;
+        }
+        j = i + search.len();
+        if &bin[i..j] == search {
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}

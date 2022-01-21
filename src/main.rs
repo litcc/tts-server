@@ -1,9 +1,11 @@
 //#![feature(get_mut_unchecked)]
 // #![windows_subsystem = "windows"]
+#![feature(async_closure)]
 
 use crate::ms_tts::ms_tts_websocket;
-use bytes::{Buf, BytesMut};
+use bytes::{Bytes, BytesMut};
 use crossbeam_channel::{Receiver, Sender};
+use futures_util::StreamExt;
 pub use log::*;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
@@ -20,18 +22,13 @@ mod tests;
 pub mod utils;
 //mod event_bus;
 
-static TTS_QUEUE: OnceCell<HashMap<String, (Sender<BytesMut>, Receiver<BytesMut>)>> =
+pub(crate) static CHANNEL: OnceCell<HashMap<String, (Sender<Bytes>, Receiver<Bytes>)>> =
     OnceCell::new();
 
-static RUNTIME: OnceCell<Runtime> = OnceCell::new();
+pub(crate) static RUNTIME: OnceCell<Runtime> = OnceCell::new();
 
-#[tokio::main]
-async fn main() {
-    log_utils::init_log();
-    // env_logger::init();
-    info!("Hello, world!");
-
-    TTS_QUEUE.get_or_init(|| {
+fn init() {
+    CHANNEL.get_or_init(|| {
         let mut tts_map = HashMap::new();
         tts_map.insert("tts".to_string(), crossbeam_channel::bounded(2000));
         tts_map.insert("control".to_string(), crossbeam_channel::bounded(2000));
@@ -48,26 +45,16 @@ async fn main() {
             .build()
             .unwrap()
     });
+}
 
+#[tokio::main]
+async fn main() {
+    log_utils::init_log();
+    // env_logger::init();
+    info!("Hello, world!");
+    init();
 
-    RUNTIME.get().unwrap().spawn_blocking(move || {
-        let mut websocket: Option<WebSocketStream<TlsStream<TcpStream>>> = Option::None;
-        let tts_receiver = TTS_QUEUE.get().unwrap().get("tts").unwrap().1.clone();
-        loop {
-            let msg = tts_receiver.recv();
-            if let Ok(m) = msg {
-                // info!("get message from event bus: {:?}", d);
-                if let Some(ref mut socket) = websocket {
-
-
-                }
-                // if let Some(socket) = websocket {
-                // } else {
-                //     let result = ms_tts_websocket().await;
-                // }
-            }
-        }
-    });
+    ms_tts::register_service();
 
     //crossbeam_channel::unbounded() // 无限制队列大小
     //crossbeam_channel::bounded(2000) // 指定队列大小
