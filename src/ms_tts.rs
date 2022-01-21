@@ -1,14 +1,19 @@
-use bytes::{BufMut, BytesMut};
+use actix_web::Either::A;
+use bytes::{Buf, BufMut, BytesMut};
 use futures_util::stream::SplitSink;
 use futures_util::{SinkExt, StreamExt};
 use log::debug;
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use std::borrow::BorrowMut;
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fs::File;
 use std::io::Write;
 use std::net::Ipv4Addr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
@@ -32,7 +37,7 @@ static TAG_SOME_DATA_START: [u8; 2] = [0, 128];
 static TAG_NONE_DATA_START: [u8; 2] = [0, 103];
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct MsTtsRequest {
+pub struct MsTtsMsgRequest {
     // 待生成文本
     pub text: String,
     // 请求id
@@ -51,32 +56,27 @@ pub struct MsTtsRequest {
     // phoneme_list:Vec<String>
 }
 
-pub(crate) fn register_service() {
-    type WebsocketRt = SplitSink<WebSocketStream<TlsStream<TcpStream>>, Message>;
-    crate::RUNTIME.get().unwrap().spawn_blocking(async || {
-        let tx: Arc<Mutex<Option<WebsocketRt>>> = Arc::new(Mutex::new(None));
-        let tts_receiver = crate::CHANNEL
-            .get()
-            .unwrap()
-            .get("tts")
-            .unwrap()
-            .1
-            .clone();
+type WebsocketRt = SplitSink<WebSocketStream<TlsStream<TcpStream>>, Message>;
 
+pub(crate) fn register_service() {
+    crate::RUNTIME.get().unwrap().spawn_blocking(async || {
+        let mut tx: Arc<Mutex<Option<WebsocketRt>>> = Arc::new(Mutex::new(None));
+        let msg_receiver = crate::CHANNEL.get().unwrap().get("value").unwrap().1.clone();
         loop {
-            let msg = tts_receiver.recv();
+            let msg = msg_receiver.recv();
             if let Ok(m) = msg {
+                // let mut kk = tx.clone().lock().await;
                 // info!("get message from event bus: {:?}", d);
-                if tx.clone().lock().unwrap().is_none() {
+                if tx.clone().lock().await.is_none() {
                     debug!("websocket is not connected");
-                    let mut result = ms_tts_websocket().await;
+                    let mut result = new_websocket().await;
                     loop {
                         if let Ok(ref mut _socket2) = result {
-                            let (tx_tmp, rx_tmp) = result.unwrap().split();
-                            tx.clone().lock().unwrap().replace(tx_tmp);
-                            let tmp1 = tx.clone();
+                            let (mut tx_tmp, mut rx_tmp) = result.unwrap().split();
+                            *tx.lock().await = Some(tx_tmp);
+                            let tx_tmp1 = Arc::clone(&tx);
                             crate::RUNTIME.get().unwrap().spawn_blocking(async move || {
-                                let tx_r = tmp1.clone();
+                                let tx_r = tx_tmp1;
                                 let mut rx_r = rx_tmp;
                                 // let mut responeData:HashMap<String,B>
                                 let mut cache: HashMap<String, BytesMut> = HashMap::new();
@@ -130,61 +130,61 @@ pub(crate) fn register_service() {
                                         }
                                         Err(e) => {
                                             info!("收到错误消息:{:?}", e);
+                                            // websocket 错误的话就会断开连接
                                             break;
                                         }
                                     }
                                 }
-                                *tx_r.lock().unwrap() = None;
+                                *tx_r.lock().await = None;
                             });
                             break;
                         } else {
                             debug!("reconnection websocket");
-                            result = ms_tts_websocket().await;
+                            result = new_websocket().await;
                         }
                     }
                 }
 
-                let request: MsTtsRequest = bincode::deserialize(&m[..]).unwrap();
+                let request: MsTtsMsgRequest = bincode::deserialize(&m[..]).unwrap();
 
-
-                let tx_o = tx.clone();
+                let mut tx_tmp2 = tx.clone();
                 crate::RUNTIME.get().unwrap().spawn_blocking(async move || {
-                    let mut tx_b = tx_o;
+
                     let msg1 = String::from("Path:speech.config\r\nContent-Type:application/json;charset=utf-8\r\n\r\n{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"},\"language\":{\"autoDetection\":false}}}}\r\n");
 
-                    let request_id = random_string(32);
-                    let msg2 = format!("Path:ssml\r\nX-RequestId:{}\r\nContent-Type:application/ssml+xml\r\n\r\n<speak xmlns=\"http://www.w3.org/2001/10/synthesis\" xmlns:mstts=\"http://www.w3.org/2001/mstts\" xmlns:emo=\"http://www.w3.org/2009/10/emotionml\" version=\"1.0\" xml:lang=\"zh-CN\"><voice name=\"{}\"><s /><mstts:express-as style=\"{}\"><prosody rate=\"{}%\" pitch=\"{}%\">{}</prosody></mstts:express-as><s /></voice></speak>", request_id, "zh-CN-XiaoxiaoNeural", "general", "0", "0", "扣你及哇");
-                    tx_b.lock().unwrap().unwrap().send(Message::Text(msg1)).await.unwrap();
-                    tx_b.lock().unwrap().unwrap().send(Message::Text(msg2)).await.unwrap();
-                });
+                    // let request_id = random_string(32);
+                    let msg2 = format!("Path:ssml\r\nX-RequestId:{}\r\nContent-Type:application/ssml+xml\r\n\r\n<speak xmlns=\"http://www.w3.org/2001/10/synthesis\" xmlns:mstts=\"http://www.w3.org/2001/mstts\" xmlns:emo=\"http://www.w3.org/2009/10/emotionml\" version=\"1.0\" xml:lang=\"zh-CN\"><voice name=\"{}\"><s /><mstts:express-as style=\"{}\"><prosody rate=\"{}%\" pitch=\"{}%\">{}</prosody></mstts:express-as><s /></voice></speak>", request.request_id, "zh-CN-XiaoxiaoNeural", "general", "0", "0", request.text);
 
-                // if let Some(ref mut _socket) = websocket {
-                //     debug!("send message to ms tts");
-                // } else {
-                //
-                //     // (ref mut tx,ref mut rx)
-                //     // let (ref mut tx,ref mut rx) = (&mut ().unwrap()).split();
-                // }
-                // if let Some(socket) = websocket {
-                // } else {
-                //     let result = ms_tts_websocket().await;
-                // }
+                    tx_tmp2.lock().await.as_mut().unwrap().send(Message::Text(msg1)).await.unwrap();
+                    tx_tmp2.lock().await.as_mut().unwrap().send(Message::Text(msg2)).await.unwrap();
+                });
             }
         }
     });
 }
 
+static MS_TTS_TOKEN: Lazy<String> = Lazy::new(|| {
+    String::from_utf8(
+        [
+            54, 65, 53, 65, 65, 49, 68, 52, 69, 65, 70, 70, 52, 69, 57, 70, 66, 51, 55, 69, 50, 51,
+            68, 54, 56, 52, 57, 49, 68, 54, 70, 52,
+        ]
+            .to_vec(),
+    )
+        .unwrap()
+});
+
 ///
 /// 获取新的隧道连接
-pub(crate) async fn ms_tts_websocket() -> Result<WebSocketStream<TlsStream<TcpStream>>, String> {
-    let trusted_client_token = format!("6A5AA1D4EAFF4E9FB37E23D68491D6F4");
+pub(crate) async fn new_websocket() -> Result<WebSocketStream<TlsStream<TcpStream>>, String> {
     let connect_id = random_string(32);
     let uri = Uri::builder()
         .scheme("wss")
         .authority("speech.platform.bing.com")
         .path_and_query(format!(
             "/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken={}&ConnectionId={}",
-            &trusted_client_token, &connect_id
+            MS_TTS_TOKEN.as_str(),
+            &connect_id
         ))
         .build();
     if let Err(e) = uri {
@@ -241,8 +241,8 @@ pub(crate) async fn ms_tts_websocket() -> Result<WebSocketStream<TlsStream<TcpSt
             max_frame_size: None,
             accept_unmasked_frames: false,
         }),
-    )
-    .await;
+    ).await;
+
     return match websocket {
         Ok(_websocket) => {
             info!("websocket 握手成功");

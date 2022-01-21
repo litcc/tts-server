@@ -2,7 +2,7 @@
 // #![windows_subsystem = "windows"]
 #![feature(async_closure)]
 
-use crate::ms_tts::ms_tts_websocket;
+use crate::ms_tts::new_websocket;
 use bytes::{Bytes, BytesMut};
 use crossbeam_channel::{Receiver, Sender};
 use futures_util::StreamExt;
