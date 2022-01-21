@@ -1,11 +1,11 @@
-use actix_web::Either::A;
-use bytes::{Buf, BufMut, BytesMut};
+
+use bytes::{BufMut, BytesMut};
 use futures_util::stream::SplitSink;
 use futures_util::{SinkExt, StreamExt};
 use log::debug;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::borrow::BorrowMut;
+
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fs::File;
@@ -60,7 +60,7 @@ type WebsocketRt = SplitSink<WebSocketStream<TlsStream<TcpStream>>, Message>;
 
 pub(crate) fn register_service() {
     crate::RUNTIME.get().unwrap().spawn_blocking(async || {
-        let mut tx: Arc<Mutex<Option<WebsocketRt>>> = Arc::new(Mutex::new(None));
+        let tx: Arc<Mutex<Option<WebsocketRt>>> = Arc::new(Mutex::new(None));
         let msg_receiver = crate::CHANNEL.get().unwrap().get("value").unwrap().1.clone();
         loop {
             let msg = msg_receiver.recv();
@@ -72,7 +72,7 @@ pub(crate) fn register_service() {
                     let mut result = new_websocket().await;
                     loop {
                         if let Ok(ref mut _socket2) = result {
-                            let (mut tx_tmp, mut rx_tmp) = result.unwrap().split();
+                            let (tx_tmp, rx_tmp) = result.unwrap().split();
                             *tx.lock().await = Some(tx_tmp);
                             let tx_tmp1 = Arc::clone(&tx);
                             crate::RUNTIME.get().unwrap().spawn_blocking(async move || {
@@ -147,7 +147,7 @@ pub(crate) fn register_service() {
 
                 let request: MsTtsMsgRequest = bincode::deserialize(&m[..]).unwrap();
 
-                let mut tx_tmp2 = tx.clone();
+                let tx_tmp2 = tx.clone();
                 crate::RUNTIME.get().unwrap().spawn_blocking(async move || {
 
                     let msg1 = String::from("Path:speech.config\r\nContent-Type:application/json;charset=utf-8\r\n\r\n{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"},\"language\":{\"autoDetection\":false}}}}\r\n");

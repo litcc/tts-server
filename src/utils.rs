@@ -42,13 +42,12 @@ pub fn binary_search(bin: &[u8], search: &[u8]) -> Option<usize> {
         panic!("binary_search: length overflow");
     }
     let mut i = 0;
-    let mut j = 0;
     let k: usize = bin.len() - search.len();
     loop {
         if i >= k {
             break;
         }
-        j = i + search.len();
+        let j = i + search.len();
         if &bin[i..j] == search {
             return Some(i);
         }
