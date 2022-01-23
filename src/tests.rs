@@ -2,7 +2,7 @@
 
 use crate::ms_tts::{new_websocket, MsTtsMsgRequest};
 use crate::utils::{binary_search, random_string};
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{BufMut, BytesMut};
 use futures_util::{SinkExt, StreamExt};
 use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Root};
@@ -10,7 +10,7 @@ use log4rs::encode::pattern::PatternEncoder;
 use log4rs::Config;
 use std::thread;
 use std::time::Duration;
-use tokio::fs::File;
+
 use tokio::net::TcpStream;
 use tokio_rustls::client::TlsStream;
 use tokio_tungstenite::tungstenite::Message;
@@ -112,9 +112,9 @@ async fn test_ms_tts_websocket() {
                 tx.send(Message::Text(msg4)).await.unwrap();
             });
 
-            let tag_body_split: [u8; 12] = [80, 97, 116, 104, 58, 97, 117, 100, 105, 111, 13, 10]; // "Path:audio\r\n"
-            let tag_some_data_start = [0, 128]; // �X-R
-            let tag_none_data_start = [0, 103]; // gX-R
+            let _tag_body_split: [u8; 12] = [80, 97, 116, 104, 58, 97, 117, 100, 105, 111, 13, 10]; // "Path:audio\r\n"
+            let _tag_some_data_start = [0, 128]; // �X-R
+            let _tag_none_data_start = [0, 103]; // gX-R
 
             let mut cache: HashMap<String, BytesMut> = HashMap::new();
             loop {
@@ -193,11 +193,11 @@ async fn test_bytes() {
     init_log();
     info!("test_ms_tts_websocket");
 
-    let tag_some_data_start = [0, 128];
-    let tag_none_data_start = [0, 103];
+    let _tag_some_data_start = [0, 128];
+    let _tag_none_data_start = [0, 103];
 
     let tag1 = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
-    let tag1_2: [u8; 12] = [80, 97, 116, 104, 58, 97, 117, 100, 105, 111, 13, 10];
+    let _tag1_2: [u8; 12] = [80, 97, 116, 104, 58, 97, 117, 100, 105, 111, 13, 10];
     let tag2: [u8; 5] = [0, 128, 88, 45, 82];
 
     info!("tag1: {:?}", tag1.as_bytes());
@@ -205,7 +205,7 @@ async fn test_bytes() {
         String::from_utf8_unchecked(tag2.to_vec())
     });
 
-    let mut b = BytesMut::new();
+    let _b = BytesMut::new();
 
     // b.put(&b"123"[..]);
     // b.reserve(2);
@@ -234,9 +234,6 @@ async fn test_serialize() {
     //let adsf:Vec<u8> = postcard::to_allocvec(&test).unwrap();
 }
 
-fn get_websocket() -> Result<(Sender<Bytes>, Receiver<Bytes>), Box<dyn std::error::Error>> {
-    Ok(crossbeam_channel::bounded::<Bytes>(2000))
-}
 
 // #[tokio::test]
 #[test]

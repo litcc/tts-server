@@ -9,11 +9,11 @@ pub use log::*;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
 use std::sync::{Arc};
-use std::thread;
-use std::time::Duration;
 
-use crate::ms_tts::MsTtsMsgRequest;
-use crate::utils::random_string;
+
+
+
+
 use tokio::runtime::{Builder, Runtime};
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -42,7 +42,7 @@ fn init() {
         let mut tts_map = HashMap::new();
         //crossbeam_channel::bounded(2000)
         tts_map.insert("value".to_string(), {
-            let (tx, mut rx) = tokio::sync::mpsc::channel(2000);
+            let (tx, rx) = tokio::sync::mpsc::channel(2000);
             let receiver = Arc::new(tokio::sync::Mutex::new(rx));
             MpscChannel {
                 sender: tx,
@@ -50,7 +50,7 @@ fn init() {
             }
         });
         tts_map.insert("control".to_string(), {
-            let (tx, mut rx) = tokio::sync::mpsc::channel(2000);
+            let (tx, rx) = tokio::sync::mpsc::channel(2000);
             let receiver = Arc::new(tokio::sync::Mutex::new(rx));
             MpscChannel {
                 sender: tx,
@@ -79,7 +79,7 @@ async fn main() {
     info!("Hello, world!");
     init();
 
-    ms_tts::register_service();
+    ms_tts::register_service().await;
     controller::register_service();
 
     //crossbeam_channel::unbounded() // 无限制队列大小

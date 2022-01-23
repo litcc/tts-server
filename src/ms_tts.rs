@@ -1,5 +1,5 @@
 use bytes::{BufMut, Bytes, BytesMut};
-use futures_util::stream::{SplitSink, SplitStream};
+use futures_util::stream::{SplitSink};
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error};
 use once_cell::sync::Lazy;
@@ -14,7 +14,7 @@ use std::time::Duration;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
-use tokio::time;
+
 
 use tokio::net::TcpStream;
 use tokio::time::sleep;
@@ -73,13 +73,12 @@ impl MsTtsMsgRequest {
 }
 
 type WebsocketRt = SplitSink<WebSocketStream<TlsStream<TcpStream>>, Message>;
-type WebsocketRt2 = SplitStream<WebSocketStream<TlsStream<TcpStream>>>;
 
-pub(crate) fn register_service() {
+pub(crate) async fn register_service() {
     debug!("register_service");
     crate::RUNTIME.get().unwrap().handle().spawn(async {
         let tx: Arc<Mutex<Option<WebsocketRt>>> = Arc::new(Mutex::new(None));
-        let mut msg_receiver = crate::CHANNEL.get().unwrap().get("value").unwrap().receiver.clone();
+        let msg_receiver = crate::CHANNEL.get().unwrap().get("value").unwrap().receiver.clone();
 
         loop {
             let msg = msg_receiver.lock().await.recv().await;
@@ -100,7 +99,7 @@ pub(crate) fn register_service() {
 
                             if result_bool {
                                 debug!("websocket连接成功");
-                                let (mut tx_tmp, mut rx_tmp) = result.unwrap().split();
+                                let (tx_tmp, rx_tmp) = result.unwrap().split();
                                 *tx.clone().lock().await = Some(tx_tmp);
                                 let tx_tmp1 = Arc::clone(&tx);
                                 debug!("启动消息处理线程");
@@ -167,12 +166,11 @@ pub(crate) fn register_service() {
                                     }
                                     *tx_r.lock().await = None;
                                 });
-                                sleep(Duration::from_secs(1));
                                 debug!("准备跳出循环");
                                 break 'outer; //
                             } else {
                                 debug!("reconnection websocket");
-                                sleep(Duration::from_secs(1));
+                                sleep(Duration::from_secs(1)).await;
                                 result = new_websocket().await;
                             }
                         }
@@ -203,7 +201,7 @@ pub(crate) fn register_service() {
             }
         }
     });
-    sleep(Duration::from_secs(1));
+    sleep(Duration::from_secs(1)).await;
 }
 
 static MS_TTS_TOKEN: Lazy<String> = Lazy::new(|| {
