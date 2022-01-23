@@ -212,9 +212,9 @@ static MS_TTS_TOKEN: Lazy<String> = Lazy::new(|| {
             54, 65, 53, 65, 65, 49, 68, 52, 69, 65, 70, 70, 52, 69, 57, 70, 66, 51, 55, 69, 50, 51,
             68, 54, 56, 52, 57, 49, 68, 54, 70, 52,
         ]
-        .to_vec(),
+            .to_vec(),
     )
-    .unwrap()
+        .unwrap()
 });
 
 ///
@@ -285,7 +285,7 @@ pub(crate) async fn new_websocket() -> Result<WebSocketStream<TlsStream<TcpStrea
             accept_unmasked_frames: false,
         }),
     )
-    .await;
+        .await;
 
     return match websocket {
         Ok(_websocket) => {

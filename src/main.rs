@@ -80,54 +80,55 @@ async fn main() {
     init();
 
     ms_tts::register_service();
+    controller::register_service();
 
     //crossbeam_channel::unbounded() // 无限制队列大小
     //crossbeam_channel::bounded(2000) // 指定队列大小
-    let request_id = random_string(32);
-    let kkk = MsTtsMsgRequest {
-        text: "你好啊".to_string(),
-        request_id: request_id,
-        informant: "".to_string(),
-        style: "".to_string(),
-        rate: "".to_string(),
-        pitch: "".to_string(),
-        quality: "".to_string(),
-    };
-
-    CHANNEL.get().unwrap().get("value").unwrap().sender
-        .clone().send(kkk.to_bytes()).await.unwrap();
-
-    let request_id2 = random_string(32);
-    let kkk2 = MsTtsMsgRequest {
-        text: "您请进".to_string(),
-        request_id: request_id2,
-        informant: "".to_string(),
-        style: "".to_string(),
-        rate: "".to_string(),
-        pitch: "".to_string(),
-        quality: "".to_string(),
-    };
-    // thread::sleep(Duration::from_secs(5));
-    CHANNEL.get().unwrap().get("value").unwrap().sender
-        .clone().send(kkk2.to_bytes())
-        .await.unwrap();
-
-    let request_id3 = random_string(32);
-    // thread::sleep(Duration::from_secs(5));
-
-    let kkk3 = MsTtsMsgRequest {
-        text: "您请进2".to_string(),
-        request_id: request_id3,
-        informant: "".to_string(),
-        style: "".to_string(),
-        rate: "".to_string(),
-        pitch: "".to_string(),
-        quality: "".to_string(),
-    };
-
-    CHANNEL.get().unwrap().get("value").unwrap().sender
-        .clone().send(kkk3.to_bytes())
-        .await.unwrap();
-
-    thread::sleep(Duration::from_secs(20));
+    // let request_id = random_string(32);
+    // let kkk = MsTtsMsgRequest {
+    //     text: "你好啊".to_string(),
+    //     request_id: request_id,
+    //     informant: "".to_string(),
+    //     style: "".to_string(),
+    //     rate: "".to_string(),
+    //     pitch: "".to_string(),
+    //     quality: "".to_string(),
+    // };
+    //
+    // CHANNEL.get().unwrap().get("value").unwrap().sender
+    //     .clone().send(kkk.to_bytes()).await.unwrap();
+    //
+    // let request_id2 = random_string(32);
+    // let kkk2 = MsTtsMsgRequest {
+    //     text: "您请进".to_string(),
+    //     request_id: request_id2,
+    //     informant: "".to_string(),
+    //     style: "".to_string(),
+    //     rate: "".to_string(),
+    //     pitch: "".to_string(),
+    //     quality: "".to_string(),
+    // };
+    // // thread::sleep(Duration::from_secs(5));
+    // CHANNEL.get().unwrap().get("value").unwrap().sender
+    //     .clone().send(kkk2.to_bytes())
+    //     .await.unwrap();
+    //
+    // let request_id3 = random_string(32);
+    // // thread::sleep(Duration::from_secs(5));
+    //
+    // let kkk3 = MsTtsMsgRequest {
+    //     text: "您请进2".to_string(),
+    //     request_id: request_id3,
+    //     informant: "".to_string(),
+    //     style: "".to_string(),
+    //     rate: "".to_string(),
+    //     pitch: "".to_string(),
+    //     quality: "".to_string(),
+    // };
+    //
+    // CHANNEL.get().unwrap().get("value").unwrap().sender
+    //     .clone().send(kkk3.to_bytes())
+    //     .await.unwrap();
+    //
+    // thread::sleep(Duration::from_secs(20));
 }

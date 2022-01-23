@@ -10,13 +10,13 @@ use std::env;
 pub(crate) fn init_log() {
     let stdout = ConsoleAppender::builder()
         .encoder(Box::new(PatternEncoder::new(
-            "{d(%Y-%m-%d %H:%M:%S)} {t} {T} thread_{I} {h({l})} - {m}{n}",
+            "{d(%Y-%m-%d %H:%M:%S)} [{t}] {T} {I} {h({l})} - {m}{n}",
         )))
         .build();
 
     let requests = FileAppender::builder()
         .encoder(Box::new(PatternEncoder::new(
-            "{d(%Y-%m-%d %H:%M:%S)} {t} {T} thread_{I} {l} - {m}{n}",
+            "{d(%Y-%m-%d %H:%M:%S)} [{t}] {T} {I} {l} - {m}{n}",
         )))
         .build(format!(
             "{}/local_ocr/ocr.log",
