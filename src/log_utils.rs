@@ -2,7 +2,7 @@ use log::LevelFilter;
 use log4rs;
 use log4rs::append::console::ConsoleAppender;
 use log4rs::append::file::FileAppender;
-use log4rs::config::{Appender, Config, Root};
+use log4rs::config::{Appender, Config, Logger, Root};
 //, Logger
 use log4rs::encode::pattern::PatternEncoder;
 use std::env;
@@ -27,6 +27,8 @@ pub(crate) fn init_log() {
     let config = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
         .appender(Appender::builder().build("file", Box::new(requests)))
+        .logger(Logger::builder().build("rustls", LevelFilter::Info))
+        .logger(Logger::builder().build("tungstenite", LevelFilter::Info))
         // .logger(Logger::builder()
         //     .appender("file")
         //     .additive(true)
@@ -35,7 +37,7 @@ pub(crate) fn init_log() {
             Root::builder()
                 .appender("stdout")
                 .appender("file")
-                .build(LevelFilter::Info),
+                .build(LevelFilter::Debug),
         )
         .unwrap();
 

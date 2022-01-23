@@ -2,19 +2,16 @@
 
 use crate::ms_tts::{new_websocket, MsTtsMsgRequest};
 use crate::utils::{binary_search, random_string};
-use bytes::{BufMut, Bytes};
+use bytes::{BufMut, Bytes, BytesMut};
 use futures_util::{SinkExt, StreamExt};
 use log4rs::append::console::ConsoleAppender;
-use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::Config;
-use serde::Serialize;
-use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
+use tokio::fs::File;
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
 use tokio_rustls::client::TlsStream;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
@@ -44,10 +41,12 @@ fn init_log() {
 #[test]
 fn test_get_ms_tts_token() {
     info!("ms tts websocket token: ");
-    let token: [u8; 32] = [54, 65, 53, 65, 65, 49, 68, 52, 69, 65, 70, 70, 52, 69, 57, 70, 66, 51, 55, 69, 50, 51, 68, 54, 56, 52, 57, 49, 68, 54, 70, 52];
-    info!("{}",String::from_utf8(token.to_vec()).unwrap())
+    let token: [u8; 32] = [
+        54, 65, 53, 65, 65, 49, 68, 52, 69, 65, 70, 70, 52, 69, 57, 70, 66, 51, 55, 69, 50, 51, 68,
+        54, 56, 52, 57, 49, 68, 54, 70, 52,
+    ];
+    info!("{}", String::from_utf8(token.to_vec()).unwrap())
 }
-
 
 #[test]
 fn test4() {
@@ -116,6 +115,8 @@ async fn test_ms_tts_websocket() {
             let tag_body_split: [u8; 12] = [80, 97, 116, 104, 58, 97, 117, 100, 105, 111, 13, 10]; // "Path:audio\r\n"
             let tag_some_data_start = [0, 128]; // �X-R
             let tag_none_data_start = [0, 103]; // gX-R
+
+            let mut cache: HashMap<String, BytesMut> = HashMap::new();
             loop {
                 let msg = rx.next().await.unwrap();
 
@@ -135,43 +136,35 @@ async fn test_ms_tts_websocket() {
                             }
                             Message::Text(s) => {
                                 let id = s[12..44].to_string();
-                                info!("收到消息: {}", id);
+                                // info!("到消息: {}", id);
+                                if let Some(_i) = s.find("Path:turn.start") {
+                                    cache.insert(id, BytesMut::new());
+                                } else if let Some(_i) = s.find("Path:turn.end") {
+                                    debug!("响应 {}， 结束", id);
+                                    // File::create(format!("/tmp/{}.mp3", id)).await
+                                    //     .write_all(&cache.get(&id).unwrap().to_vec())
+                                    //     .unwrap();
+                                    cache.remove(&id);
+                                }
                             }
                             Message::Binary(s) => {
-                                if s.starts_with(&tag_some_data_start) {
+                                if s.starts_with(&crate::ms_tts::TAG_SOME_DATA_START) {
                                     let id = String::from_utf8(s[14..46].to_vec()).unwrap();
                                     let mut body = BytesMut::from(s.as_slice());
-                                    let index = binary_search(&s, &tag_body_split).unwrap();
-                                    let mut body_new = body.split_to(index + tag_body_split.len());
-
+                                    let index =
+                                        binary_search(&s, &crate::ms_tts::TAG_BODY_SPLIT).unwrap();
+                                    let mut _head =
+                                        body.split_to(index + crate::ms_tts::TAG_BODY_SPLIT.len());
+                                    cache.get_mut(&id).unwrap().put(body);
                                     info!("二进制响应体 ,{}", id);
-                                } else if s.starts_with(&tag_none_data_start) {
+                                } else if s.starts_with(&crate::ms_tts::TAG_NONE_DATA_START) {
                                     let id = String::from_utf8(s[14..46].to_vec()).unwrap();
-                                    info!("二进制响应体结束 tag_none_data_start, {}", id);
+                                    info!("二进制响应体结束 TAG_NONE_DATA_START, {}", id);
                                 } else {
                                     info!("其他二进制类型: {} ", unsafe {
                                         String::from_utf8_unchecked(s.to_vec())
                                     });
                                 }
-
-                                // let mut df = BytesMut::from(s.as_slice());
-                                //
-                                // let index = binary_search(&s,&tag1);
-                                //
-                                // if let Some(i) = index {
-                                //     let mut b = df.split_to(i + tag1.len());
-                                //
-                                //     info!("头长度: {} ", b.len());
-                                //     info!("消息长度: {} ", df.len());
-                                //     let l5 = b.split_to(5);
-                                //     info!("收到二进制消息前5位: {:?} ", l5.to_vec());
-                                //     info!("收到二进制消息: {:} \n\n", unsafe { String::from_utf8_unchecked(l5.to_vec()) });
-                                // }else {
-                                //     let l5 = df.split_to(5);
-                                //     info!("收到二进制消息前5位: {:?} ", l5.to_vec());
-                                //     info!("收到二进制消息: {:} \n\n", unsafe { String::from_utf8_unchecked(df.to_vec()) });
-                                //
-                                // }
                             }
                         }
                     }
@@ -206,7 +199,6 @@ async fn test_bytes() {
     let tag1 = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
     let tag1_2: [u8; 12] = [80, 97, 116, 104, 58, 97, 117, 100, 105, 111, 13, 10];
     let tag2: [u8; 5] = [0, 128, 88, 45, 82];
-
 
     info!("tag1: {:?}", tag1.as_bytes());
     info!("tag2: {}", unsafe {
@@ -246,8 +238,9 @@ fn get_websocket() -> Result<(Sender<Bytes>, Receiver<Bytes>), Box<dyn std::erro
     Ok(crossbeam_channel::bounded::<Bytes>(2000))
 }
 
-#[tokio::test]
-async fn test_error1() {
+// #[tokio::test]
+#[test]
+fn test_error1() {
     init_log();
     info!("test_serialize");
 
@@ -261,4 +254,20 @@ async fn test_error1() {
             .build()
             .unwrap()
     });
+
+    info!("1");
+    crate::RUNTIME.get().unwrap().spawn(async {
+        info!("2");
+        std::thread::sleep(Duration::from_secs(1));
+        info!("3");
+        crate::RUNTIME.get().unwrap().spawn(async move {
+            info!("4");
+            //std::thread::sleep(Duration::from_secs(1));
+            info!("5");
+        });
+        info!("8");
+    });
+    info!("9");
+
+    thread::sleep(Duration::from_secs(5));
 }

@@ -2,17 +2,20 @@
 // #![windows_subsystem = "windows"]
 #![feature(async_closure)]
 
+use bytes::Bytes;
 
-use bytes::{Bytes};
-use crossbeam_channel::{Receiver, Sender};
 
 pub use log::*;
 use once_cell::sync::OnceCell;
 use std::collections::HashMap;
+use std::sync::{Arc};
+use std::thread;
+use std::time::Duration;
 
+use crate::ms_tts::MsTtsMsgRequest;
+use crate::utils::random_string;
 use tokio::runtime::{Builder, Runtime};
-
-
+use tokio::sync::mpsc::{Receiver, Sender};
 
 mod controller;
 mod log_utils;
@@ -22,16 +25,38 @@ mod tests;
 pub mod utils;
 //mod event_bus;
 
-pub(crate) static CHANNEL: OnceCell<HashMap<String, (Sender<Bytes>, Receiver<Bytes>)>> =
+pub(crate) static CHANNEL: OnceCell<HashMap<String, MpscChannel>> =
     OnceCell::new();
 
+
+struct MpscChannel {
+    sender: Sender<Bytes>,
+    receiver: Arc<tokio::sync::Mutex<Receiver<Bytes>>>,
+}
+
 pub(crate) static RUNTIME: OnceCell<Runtime> = OnceCell::new();
+
 
 fn init() {
     CHANNEL.get_or_init(|| {
         let mut tts_map = HashMap::new();
-        tts_map.insert("tts".to_string(), crossbeam_channel::bounded(2000));
-        tts_map.insert("control".to_string(), crossbeam_channel::bounded(2000));
+        //crossbeam_channel::bounded(2000)
+        tts_map.insert("value".to_string(), {
+            let (tx, mut rx) = tokio::sync::mpsc::channel(2000);
+            let receiver = Arc::new(tokio::sync::Mutex::new(rx));
+            MpscChannel {
+                sender: tx,
+                receiver,
+            }
+        });
+        tts_map.insert("control".to_string(), {
+            let (tx, mut rx) = tokio::sync::mpsc::channel(2000);
+            let receiver = Arc::new(tokio::sync::Mutex::new(rx));
+            MpscChannel {
+                sender: tx,
+                receiver,
+            }
+        });
         tts_map
     });
 
@@ -58,37 +83,51 @@ async fn main() {
 
     //crossbeam_channel::unbounded() // 无限制队列大小
     //crossbeam_channel::bounded(2000) // 指定队列大小
+    let request_id = random_string(32);
+    let kkk = MsTtsMsgRequest {
+        text: "你好啊".to_string(),
+        request_id: request_id,
+        informant: "".to_string(),
+        style: "".to_string(),
+        rate: "".to_string(),
+        pitch: "".to_string(),
+        quality: "".to_string(),
+    };
 
-    //
-    // let hh = ms_tts_websocket().await;
-    //
-    // match hh {
-    //     Ok(mut socket) => {
-    //         info!("连接成功");
-    //         websocket = Some(socket);
-    //
-    //         let (mut tx, mut rx) = websocket.unwrap().split();
-    //
-    //         tx.send(Message::Ping(vec![])).await.unwrap();
-    //         let msg1 = String::from("Path:speech.config\r\nContent-Type:application/json;charset=utf-8\r\n\r\n{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"},\"language\":{\"autoDetection\":false}}}}\r\n");
-    //
-    //         let request_id = random_string(32);
-    //         let msg2 = format!("Path:ssml\r\nX-RequestId:{}\r\nContent-Type:application/ssml+xml\r\n\r\n<speak xmlns=\"http://www.w3.org/2001/10/synthesis\" xmlns:mstts=\"http://www.w3.org/2001/mstts\" xmlns:emo=\"http://www.w3.org/2009/10/emotionml\" version=\"1.0\" xml:lang=\"zh-CN\"><voice name=\"{}\"><s /><mstts:express-as style=\"{}\"><prosody rate=\"{}%\" pitch=\"{}%\">{}</prosody></mstts:express-as><s /></voice></speak>", request_id, "zh-CN-XiaoxiaoNeural", "general", "0", "0", "你好");
-    //
-    //         tx.send(Message::Text(msg1)).await.unwrap();
-    //         tx.send(Message::Text(msg2)).await.unwrap();
-    //
-    //         loop {
-    //             let msg = rx.next().await.unwrap();
-    //
-    //             if let Ok(m) = msg {
-    //                 info!("收到消息:{:?}", m);
-    //             }
-    //         }
-    //         //let (write, read) = websocket.split();
-    //     }
-    //     Err(e) => {
-    //         println!("连接错误: {}", e)
-    //     }
-    // }
+    CHANNEL.get().unwrap().get("value").unwrap().sender
+        .clone().send(kkk.to_bytes()).await.unwrap();
+
+    let request_id2 = random_string(32);
+    let kkk2 = MsTtsMsgRequest {
+        text: "您请进".to_string(),
+        request_id: request_id2,
+        informant: "".to_string(),
+        style: "".to_string(),
+        rate: "".to_string(),
+        pitch: "".to_string(),
+        quality: "".to_string(),
+    };
+    // thread::sleep(Duration::from_secs(5));
+    CHANNEL.get().unwrap().get("value").unwrap().sender
+        .clone().send(kkk2.to_bytes())
+        .await.unwrap();
+
+    let request_id3 = random_string(32);
+    // thread::sleep(Duration::from_secs(5));
+
+    let kkk3 = MsTtsMsgRequest {
+        text: "您请进2".to_string(),
+        request_id: request_id3,
+        informant: "".to_string(),
+        style: "".to_string(),
+        rate: "".to_string(),
+        pitch: "".to_string(),
+        quality: "".to_string(),
+    };
+
+    CHANNEL.get().unwrap().get("value").unwrap().sender
+        .clone().send(kkk3.to_bytes())
+        .await.unwrap();
+
+    thread::sleep(Duration::from_secs(20));
 }
