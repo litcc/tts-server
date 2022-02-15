@@ -44,7 +44,7 @@ pub fn binary_search(bin: &[u8], search: &[u8]) -> Option<usize> {
     let mut i = 0;
     let k: usize = bin.len() - search.len();
     loop {
-        if i >= k {
+        if i > k {
             break;
         }
         let j = i + search.len();
