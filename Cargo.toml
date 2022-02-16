@@ -39,7 +39,8 @@ event_bus = { path = "./EventBus" }
 
 [dev-dependencies]
 
-
+[target.'cfg(loom)'.dependencies]
+loom = "0.5"
 
 [profile.release]
 opt-level = 'z'

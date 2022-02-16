@@ -128,18 +128,21 @@ pub(crate) async fn register_service() {
     debug!("register_service");
 
     crate::GLOBAL_EB.consumer("tts_ms", |fn_msg| async move {
+        let id = random_string(5);
+        // info!("consumer {} 1",id);
         let eb_msg = fn_msg.msg.clone();
         let eb = Arc::clone(&fn_msg.eb);
         let ll = Bytes::from(eb_msg.body().await.as_bytes().expect("event_bus[ms-tts]: body is not bytes").to_vec());
         let request = MsTtsMsgRequest::from_bytes(ll);
-
+        // info!("consumer {} 2",id);
         let tx_socket = Arc::clone(SOCKET_TX.get_or_init(|| {
             Arc::new(Mutex::new(None))
         }));
-        let is_some = tx_socket.clone().lock().await.is_some();
+        // info!("consumer {} 3",id);
 
-        if !MS_TTS_GET_NEW.load(Ordering::Relaxed) && !is_some {
-            MS_TTS_GET_NEW.store(true,Ordering::Relaxed);
+        // info!("consumer {} 4",id);
+        if !MS_TTS_GET_NEW.load(Ordering::Relaxed) && !tx_socket.clone().lock().await.is_some() {
+            MS_TTS_GET_NEW.store(true, Ordering::Release);
             debug!("websocket is not connected");
             let mut result = new_websocket().await;
             'outer: loop {
@@ -153,18 +156,21 @@ pub(crate) async fn register_service() {
                     *tx_socket.clone().lock().await = Some(tx_tmp);
                     let tx_tmp1 = Arc::clone(&tx_socket);
                     trace!("启动消息处理线程");
-                    //crate::RUNTIME.get().unwrap().spawn
-                    //tokio::spawn
+                    // let eb_clone1 = eb.clone();
                     eb.runtime.spawn(async move {
-                        trace!("消息处理线程启动成功");
                         let tx_r = tx_tmp1.clone();
                         let mut rx_r = rx_tmp;
-
-                        trace!("开始获取websocket返回值");
                         loop {
+                            // rx_r.
+                            // rx_r.for_each(|message| async{
+                            //
+                            // }).await;
                             let msg = rx_r.next().await.unwrap();
                             match msg {
                                 Ok(m) => {
+                                    // eb_clone1.runtime.spawn(async move {})
+
+
                                     trace!("收到消息");
                                     match m {
                                         Message::Ping(s) => {
@@ -175,7 +181,7 @@ pub(crate) async fn register_service() {
                                             trace!("收到pong消息: {:?}", s);
                                         }
                                         Message::Close(s) => {
-                                            trace!("收到close消息: {:?}", s);
+                                            debug!("被动断开连接: {:?}", s);
                                             break;
                                         }
                                         Message::Text(s) => {
@@ -217,7 +223,8 @@ pub(crate) async fn register_service() {
                                     }
                                 }
                                 Err(e) => {
-                                    trace!("收到错误消息:{:?}", e);
+                                    // trace!("收到错误消息:{:?}", e);
+                                    debug!("收到错误消息，被动断开连接: {:?}", e);
                                     // websocket 错误的话就会断开连接
                                     break;
                                 }
@@ -234,17 +241,23 @@ pub(crate) async fn register_service() {
                 }
             }
             trace!("循环已跳出");
+            MS_TTS_GET_NEW.store(false, Ordering::Release)
+        } else {
+            while MS_TTS_GET_NEW.load(Ordering::Relaxed) || !tx_socket.clone().lock().await.is_some() {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
         }
         trace!("存在websocket连接，继续处理");
         // crate::RUNTIME.get().unwrap().spawn(async move {
         //
         // });
+        // info!("consumer {} 5",id);
         debug!("发送请求: {} | {:?}",request.request_id, request);
         let msg1 = String::from("Path:speech.config\r\nContent-Type:application/json;charset=utf-8\r\n\r\n{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"},\"language\":{\"autoDetection\":false}}}}\r\n");
 
         // let request_id = random_string(32);
         let msg2 = format!("Path:ssml\r\nX-RequestId:{}\r\nContent-Type:application/ssml+xml\r\n\r\n<speak xmlns=\"http://www.w3.org/2001/10/synthesis\" xmlns:mstts=\"http://www.w3.org/2001/mstts\" xmlns:emo=\"http://www.w3.org/2009/10/emotionml\" version=\"1.0\" xml:lang=\"zh-CN\"><voice name=\"{}\"><s /><mstts:express-as style=\"{}\"><prosody rate=\"{}%\" pitch=\"{}%\">{}</prosody></mstts:express-as><s /></voice></speak>", request.request_id, "zh-CN-XiaoxiaoNeural", "general", "0", "0", request.text);
-
+        // info!("consumer {} 6",id);
         // 向 websocket 发送消息
         unsafe {
             Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).insert(request.request_id, Mutex::new(MsTtsCache {
@@ -252,9 +265,22 @@ pub(crate) async fn register_service() {
                 reply: eb_msg.clone(),
             }))
         };
+        // info!("consumer {} 7",id);
+        {
+            let jj = tx_socket.clone();
+            let mut gg = jj.lock().await;
+            let mut socket = gg.as_mut();
+            // if socket.is_some() {
+            //     let s = socket.unwrap();
+            //     s.send(Message::Text(msg1)).await.unwrap();
+            //     s.send(Message::Text(msg2)).await.unwrap();
+            // }
+            if let Some(s) = socket {
+                s.send(Message::Text(msg1)).await.unwrap();
+                s.send(Message::Text(msg2)).await.unwrap();
+            }
+        }
 
-        tx_socket.clone().lock().await.as_mut().unwrap().send(Message::Text(msg1)).await.unwrap();
-        tx_socket.clone().lock().await.as_mut().unwrap().send(Message::Text(msg2)).await.unwrap();
     }).await;
 
 
@@ -320,8 +346,10 @@ pub(crate) async fn new_websocket() -> Result<WebSocketStream<TlsStream<TcpStrea
     }
     let domain = domain.unwrap();
 
-    //let mut sock = TcpStream::connect("speech.platform.bing.com:443").await.unwrap();
+    // let sock = TcpStream::connect("speech.platform.bing.com:443").await;
     let sock = TcpStream::connect((Ipv4Addr::new(202, 89, 233, 100), 443)).await;
+
+
 
     if let Err(e) = sock {
         return Err(format!("tcp握手失败! 请检查网络! {:?}", e));
