@@ -1,21 +1,23 @@
+use crate::ServerArea;
 use bytes::{BufMut, Bytes, BytesMut};
-use futures_util::stream::{SplitSink};
+use clap::Parser;
+use event_bus::message::IMessage;
+use fancy_regex::Regex;
+use futures_util::stream::SplitSink;
 use futures_util::{SinkExt, StreamExt};
-use log::{debug, trace};
+use itertools::Itertools;
+use log::{debug, info, trace};
 use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::net::Ipv4Addr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::atomic::Ordering::Relaxed;
+use std::sync::Arc;
 use std::time::Duration;
-use event_bus::message::IMessage;
-use fancy_regex::Regex;
-use itertools::Itertools;
-use tokio::sync::Mutex;
+use rand::Rng;
 use tokio::net::TcpStream;
+use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tokio_rustls::client::TlsStream;
 use tokio_rustls::TlsConnector;
@@ -25,7 +27,6 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{client_async_with_config, WebSocketStream};
 
-use crate::info;
 use crate::utils::{binary_search, get_system_ca_config, random_string};
 
 //log::set_max_level(LevelFilter::Trace);
@@ -38,9 +39,57 @@ pub(crate) static TAG_SOME_DATA_START: [u8; 2] = [0, 128];
 // gX-R
 pub(crate) static TAG_NONE_DATA_START: [u8; 2] = [0, 103];
 
-
 pub(crate) static MS_TTS_CONFIG: OnceCell<MsTtsConfig> = OnceCell::new();
 
+pub(crate) static MS_TTS_SERVER_CHINA_LIST: [&str; 7] = [
+    // 北京节点
+    "202.89.233.100",
+    "202.89.233.101",
+    "202.89.233.102",
+    "202.89.233.103",
+    "202.89.233.104",
+    // 国内其他地点
+    "47.95.21.44",
+    "182.61.148.24",
+
+    //	国内无法访问
+    // "171.117.98.148",
+    // "103.36.193.41",
+    // "159.75.112.15",
+    // "149.129.90.244",
+    // "111.229.238.112",
+];
+
+pub(crate) static MS_TTS_SERVER_CHINA_HK_LIST: [&str; 12] = [
+    // 北京节点
+    "149.129.121.248",
+    "103.200.112.245",
+    "47.90.51.125",
+    "61.239.177.5",
+    "149.129.88.238",
+    "103.68.61.91",
+    "47.75.141.93",
+    "34.96.186.48",
+    "47.240.87.168",
+    "47.57.114.186",
+    "150.109.51.247",
+    "20.205.113.91",
+];
+
+pub(crate) static MS_TTS_SERVER_CHINA_TW_LIST: [&str; 12] = [
+    "114.46.156.231",
+    "34.81.240.201",
+    "34.80.106.199",
+    "35.234.55.34",
+    "130.211.254.124",
+    "35.221.158.89",
+    "104.199.252.57",
+    "114.46.224.80",
+    "114.46.192.185",
+    "35.194.227.105",
+    "114.46.184.44",
+    "114.46.186.185",
+];
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct MsTtsMsgRequest {
@@ -82,7 +131,6 @@ impl Into<Vec<u8>> for MsTtsMsgRequest {
     }
 }
 
-
 impl Into<event_bus::message::Body> for MsTtsMsgRequest {
     #[inline]
     fn into(self) -> event_bus::message::Body {
@@ -90,14 +138,12 @@ impl Into<event_bus::message::Body> for MsTtsMsgRequest {
     }
 }
 
-
 struct MsTtsMsgResponse {
     // 请求id
     pub request_id: String,
     // 音频数据
     pub audio_data: Vec<u8>,
 }
-
 
 type WebsocketRt = SplitSink<WebSocketStream<TlsStream<TcpStream>>, Message>;
 
@@ -116,9 +162,7 @@ static MS_TTS_DATA_CACHE: Lazy<Arc<HashMap<String, Mutex<MsTtsCache>>>> = Lazy::
     Arc::new(kk)
 });
 
-static MS_TTS_GET_NEW: Lazy<AtomicBool> = Lazy::new(|| {
-    AtomicBool::new(false)
-});
+static MS_TTS_GET_NEW: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
 
 // static DO_INVOKE: AtomicBool = AtomicBool::new(true);
 
@@ -280,17 +324,12 @@ pub(crate) async fn register_service() {
                 s.send(Message::Text(msg2)).await.unwrap();
             }
         }
-
     }).await;
-
 
     let kk_s = get_ms_tts_config().await.unwrap();
 
-    MS_TTS_CONFIG.get_or_init(move || {
-        kk_s
-    });
+    MS_TTS_CONFIG.get_or_init(move || kk_s);
 }
-
 
 static MS_TTS_TOKEN: Lazy<String> = Lazy::new(|| {
     String::from_utf8(
@@ -306,6 +345,34 @@ static MS_TTS_TOKEN: Lazy<String> = Lazy::new(|| {
 ///
 /// 获取新的隧道连接
 pub(crate) async fn new_websocket() -> Result<WebSocketStream<TlsStream<TcpStream>>, String> {
+    let args: crate::AppArgs = crate::AppArgs::parse();
+    match args.server_area {
+        ServerArea::Default => {
+            info!("连接至官方服务器");
+            // new_websocket_by_select_server(None).await
+            new_websocket_by_select_server(Some("171.117.98.148")).await
+        }
+        ServerArea::China => {
+            info!("连接至内陆服务器");
+            let select = rand::thread_rng().gen_range(0..MS_TTS_SERVER_CHINA_LIST.len());
+            new_websocket_by_select_server(Some(MS_TTS_SERVER_CHINA_LIST.get(select).unwrap())).await
+        }
+        ServerArea::ChinaHK => {
+            info!("连接至香港服务器");
+            let select = rand::thread_rng().gen_range(0..MS_TTS_SERVER_CHINA_HK_LIST.len());
+            new_websocket_by_select_server(Some(MS_TTS_SERVER_CHINA_HK_LIST.get(select).unwrap())).await
+        }
+        ServerArea::ChinaTW => {
+            info!("连接至台湾服务器");
+            let select = rand::thread_rng().gen_range(0..MS_TTS_SERVER_CHINA_TW_LIST.len());
+            new_websocket_by_select_server(Some(MS_TTS_SERVER_CHINA_TW_LIST.get(select).unwrap())).await
+        }
+    }
+}
+
+pub(crate) async fn new_websocket_by_select_server(
+    server: Option<&str>,
+) -> Result<WebSocketStream<TlsStream<TcpStream>>, String> {
     let connect_id = random_string(32);
     let uri = Uri::builder()
         .scheme("wss")
@@ -346,13 +413,34 @@ pub(crate) async fn new_websocket() -> Result<WebSocketStream<TlsStream<TcpStrea
     }
     let domain = domain.unwrap();
 
-    // let sock = TcpStream::connect("speech.platform.bing.com:443").await;
-    let sock = TcpStream::connect((Ipv4Addr::new(202, 89, 233, 100), 443)).await;
 
+    let sock = match server {
+        Some(s) => {
+            info!("连接至 {:?}", s);
 
+            let kk: Vec<_> = s.split(".").map(|x| x.parse::<u8>().unwrap()).collect();
+            TcpStream::connect((
+                Ipv4Addr::new(
+                    kk.get(0).unwrap().clone(),
+                    kk.get(1).unwrap().clone(),
+                    kk.get(2).unwrap().clone(),
+                    kk.get(3).unwrap().clone(),
+                ),
+                443,
+            ))
+                .await
+        }
+        None => {
+            info!("连接至官方服务器");
+            TcpStream::connect("speech.platform.bing.com:443").await
+        }
+    };
 
     if let Err(e) = sock {
-        return Err(format!("tcp握手失败! 请检查网络! {:?}", e));
+        return Err(format!(
+            "连接到微软服务器发生异常，tcp握手失败! 请检查网络! {:?}",
+            e
+        ));
     }
     let sock = sock.unwrap();
 
@@ -383,7 +471,6 @@ pub(crate) async fn new_websocket() -> Result<WebSocketStream<TlsStream<TcpStrea
         Err(e2) => Err(format!("websocket 握手失败! {:?}", e2)),
     };
 }
-
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct VoicesItem {
@@ -421,13 +508,11 @@ pub struct VoicesList {
     pub by_locale_map: HashMap<String, Vec<Arc<VoicesItem>>>,
 }
 
-
 #[derive(Debug)]
 pub struct MsTtsConfig {
     pub voices_list: VoicesList,
     pub quality_list: Vec<String>,
 }
-
 
 ///
 /// 获取微软文本转语音支持的发音人配置
@@ -436,48 +521,65 @@ pub struct MsTtsConfig {
 pub(crate) async fn get_ms_tts_config() -> Option<MsTtsConfig> {
     let client = reqwest::Client::new();
     trace!("开始请求token");
-    let resp = client.get("https://azure.microsoft.com/zh-cn/services/cognitive-services/text-to-speech/").send().await.expect("get token error");
+    let resp = client
+        .get("https://azure.microsoft.com/zh-cn/services/cognitive-services/text-to-speech/")
+        .send()
+        .await
+        .expect("get token error");
     let html = resp.text().await.unwrap();
     //debug!("html内容：{}",html);
-    let token = Regex::new(r#"token: "([a-zA-Z0-9\._-]+)""#).unwrap().captures(&html).unwrap();
+    let token = Regex::new(r#"token: "([a-zA-Z0-9\._-]+)""#)
+        .unwrap()
+        .captures(&html)
+        .unwrap();
     let token_str = match token {
         Some(t) => {
             let df = t.get(1).unwrap().as_str();
-            trace!("token获取成功：{}",df);
+            trace!("token获取成功：{}", df);
             Some(df.to_owned())
         }
-        None => {
-            None
-        }
+        None => None,
     };
     if token_str.is_none() {
         return None;
     }
-    let region = Regex::new(r#"region: "([a-z0-9]+)""#).unwrap().captures(&html).unwrap();
+    let region = Regex::new(r#"region: "([a-z0-9]+)""#)
+        .unwrap()
+        .captures(&html)
+        .unwrap();
     let region_str = match region {
         Some(r) => {
             let df = r.get(1).unwrap().as_str();
-            trace!("region获取成功：{}",df);
+            trace!("region获取成功：{}", df);
             Some(df.to_owned())
         }
-        None => {
-            None
-        }
+        None => None,
     };
     if region_str.is_none() {
         return None;
     }
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert("Authorization", format!("Bearer {}", token_str.unwrap()).parse().unwrap());
+    headers.insert(
+        "Authorization",
+        format!("Bearer {}", token_str.unwrap()).parse().unwrap(),
+    );
     headers.insert("Accept", "application/json".parse().unwrap());
 
-    let config_response = client.get(format!("https://{}.tts.speech.microsoft.com/cognitiveservices/voices/list", region_str.unwrap())).headers(headers).send().await.unwrap();
+    let config_response = client
+        .get(format!(
+            "https://{}.tts.speech.microsoft.com/cognitiveservices/voices/list",
+            region_str.unwrap()
+        ))
+        .headers(headers)
+        .send()
+        .await
+        .unwrap();
     let config_json_text = config_response.text().await;
 
     if let Ok(json_text) = config_json_text {
         let tmp_list_1: Vec<VoicesItem> = serde_json::from_str(&json_text).unwrap();
 
-        trace!("长度:{}",tmp_list_1.len());
+        trace!("长度:{}", tmp_list_1.len());
 
         let mut raw_data: Vec<Arc<VoicesItem>> = Vec::new();
         let mut voices_name_list: HashSet<String> = HashSet::new();
@@ -509,45 +611,43 @@ pub(crate) async fn get_ms_tts_config() -> Option<MsTtsConfig> {
             by_locale_map,
         };
 
-        let quality = vec!["audio-16khz-128kbitrate-mono-mp3",
-                           "audio-16khz-16bit-32kbps-mono-opus",
-                           "audio-16khz-16kbps-mono-siren",
-                           "audio-16khz-32kbitrate-mono-mp3",
-                           "audio-16khz-64kbitrate-mono-mp3",
-                           "audio-24khz-160kbitrate-mono-mp3",
-                           "audio-24khz-16bit-24kbps-mono-opus",
-                           "audio-24khz-16bit-48kbps-mono-opus",
-                           "audio-24khz-48kbitrate-mono-mp3",
-                           "audio-24khz-96kbitrate-mono-mp3	",
-                           "audio-48khz-192kbitrate-mono-mp3",
-                           "audio-48khz-96kbitrate-mono-mp3",
-                           "ogg-16khz-16bit-mono-opus",
-                           "ogg-24khz-16bit-mono-opus",
-                           "ogg-48khz-16bit-mono-opus",
-                           "raw-16khz-16bit-mono-pcm",
-                           "raw-16khz-16bit-mono-truesilk",
-                           "raw-24khz-16bit-mono-pcm",
-                           "raw-24khz-16bit-mono-truesilk",
-                           "raw-48khz-16bit-mono-pcm",
-                           "raw-8khz-16bit-mono-pcm",
-                           "raw-8khz-8bit-mono-alaw",
-                           "raw-8khz-8bit-mono-mulaw",
-                           "riff-16khz-16bit-mono-pcm",
-                           // "riff-16khz-16kbps-mono-siren",/*弃用*/
-                           "riff-24khz-16bit-mono-pcm",
-                           "riff-48khz-16bit-mono-pcm",
-                           "riff-8khz-16bit-mono-pcm",
-                           "riff-8khz-8bit-mono-alaw",
-                           "riff-8khz-8bit-mono-mulaw",
-                           "webm-16khz-16bit-mono-opus",
-                           "webm-24khz-16bit-24kbps-mono-opus",
-                           "webm-24khz-16bit-mono-opus"];
+        let quality = vec![
+            "audio-16khz-128kbitrate-mono-mp3",
+            "audio-16khz-16bit-32kbps-mono-opus",
+            "audio-16khz-16kbps-mono-siren",
+            "audio-16khz-32kbitrate-mono-mp3",
+            "audio-16khz-64kbitrate-mono-mp3",
+            "audio-24khz-160kbitrate-mono-mp3",
+            "audio-24khz-16bit-24kbps-mono-opus",
+            "audio-24khz-16bit-48kbps-mono-opus",
+            "audio-24khz-48kbitrate-mono-mp3",
+            "audio-24khz-96kbitrate-mono-mp3	",
+            "audio-48khz-192kbitrate-mono-mp3",
+            "audio-48khz-96kbitrate-mono-mp3",
+            "ogg-16khz-16bit-mono-opus",
+            "ogg-24khz-16bit-mono-opus",
+            "ogg-48khz-16bit-mono-opus",
+            "raw-16khz-16bit-mono-pcm",
+            "raw-16khz-16bit-mono-truesilk",
+            "raw-24khz-16bit-mono-pcm",
+            "raw-24khz-16bit-mono-truesilk",
+            "raw-48khz-16bit-mono-pcm",
+            "raw-8khz-16bit-mono-pcm",
+            "raw-8khz-8bit-mono-alaw",
+            "raw-8khz-8bit-mono-mulaw",
+            "riff-16khz-16bit-mono-pcm",
+            // "riff-16khz-16kbps-mono-siren",/*弃用*/
+            "riff-24khz-16bit-mono-pcm",
+            "riff-48khz-16bit-mono-pcm",
+            "riff-8khz-16bit-mono-pcm",
+            "riff-8khz-8bit-mono-alaw",
+            "riff-8khz-8bit-mono-mulaw",
+            "webm-16khz-16bit-mono-opus",
+            "webm-24khz-16bit-24kbps-mono-opus",
+            "webm-24khz-16bit-mono-opus",
+        ];
 
-
-        let mut quality_list_tmp: Vec<String> = quality.iter().map(|i| {
-            i.to_string()
-        }).collect_vec();
-
+        let mut quality_list_tmp: Vec<String> = quality.iter().map(|i| i.to_string()).collect_vec();
 
         return Some(MsTtsConfig {
             voices_list: v_list,
@@ -556,7 +656,3 @@ pub(crate) async fn get_ms_tts_config() -> Option<MsTtsConfig> {
     }
     None
 }
-
-
-
-

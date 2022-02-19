@@ -53,7 +53,10 @@ pub struct MsTtsMsgRequestJson {
 }
 
 impl MsTtsMsgRequestJson {
-    pub fn to_ms_request(&self, request_id_value: String) -> Result<MsTtsMsgRequest, ControllerError> {
+    pub fn to_ms_request(
+        &self,
+        request_id_value: String,
+    ) -> Result<MsTtsMsgRequest, ControllerError> {
         let text_value: String = {
             let mut text_tmp1 = self.text.as_str().to_string();
             // url 解码
@@ -199,25 +202,22 @@ impl MsTtsMsgRequestJson {
 
 /// 监听
 #[actix_web::main]
-pub(crate) async fn register_service() {
+pub(crate) async fn register_service(address:String,port:String) {
     HttpServer::new(|| {
-        App::new()
-            .service(
-                web::resource("/tts-ms")
-                    // .name("user_detail")
-                    // .guard(guard::Header("content-type", "application/json"))
-                    .route(web::get().to(tts_ms_get_controller))
-                    .route(web::post().to(tts_ms_post_controller)),
-            )
-        // .route("/tts-ms", post().to(tts_ms_post_controller))
-        // .route("/tts-ms", get().to(tts_ms_get_controller))
+        App::new().service(
+            web::resource("/tts-ms")
+                // .name("user_detail")
+                // .guard(guard::Header("content-type", "application/json"))
+                .route(web::get().to(tts_ms_get_controller))
+                .route(web::post().to(tts_ms_post_controller)),
+        )
     })
-        .bind("0.0.0.0:8080")
-        .expect("监听http地址错误")
-        .workers(1)
-        .run()
-        .await
-        .unwrap();
+    .bind(format!("{}:{}",address,port))
+    .expect(format!("启动api服务失败，无法监听 {}:{}",address,port).as_str())
+    .workers(1)
+    .run()
+    .await
+    .unwrap();
 }
 
 async fn tts_ms_post_controller(
@@ -271,31 +271,30 @@ async fn tts_ms_get_controller(
     _req: HttpRequest,
     request: web::Query<MsTtsMsgRequestJson>,
 ) -> HttpResponse {
-
     let test_id = random_string(5);
-    info!("controller {} -1",test_id);
+    info!("controller {} -1", test_id);
     let id = random_string(32);
     // let (tx, mut rx) = tokio::sync::oneshot::channel();
     let request_tmp = request.to_ms_request(id.clone());
-    info!("controller {} -2",test_id);
+    info!("controller {} -2", test_id);
     info!("收到 get 请求 {:?}", request_tmp);
     let re = match request_tmp {
         Ok(r) => {
             debug!("请求微软语音服务器");
-            info!("controller {} -3",test_id);
+            info!("controller {} -3", test_id);
             let kk = crate::GLOBAL_EB.request("tts_ms", r.into()).await;
-            info!("controller {} -4",test_id);
+            info!("controller {} -4", test_id);
             debug!("请求微软语音完成");
             match kk {
                 Some(data) => {
-                    info!("controller {} -5",test_id);
+                    info!("controller {} -5", test_id);
                     let mut respone =
                         HttpResponse::build(StatusCode::OK).body(data.as_bytes().unwrap().to_vec());
                     respone.headers_mut().insert(
                         actix_web::http::header::CONTENT_TYPE,
                         "audio/*".parse().unwrap(),
                     );
-                    info!("controller {} -6",test_id);
+                    info!("controller {} -6", test_id);
                     respone
                 }
                 None => {
@@ -317,7 +316,7 @@ async fn tts_ms_get_controller(
             respone
         }
     };
-    info!("controller {} -7",test_id);
+    info!("controller {} -7", test_id);
     debug!("响应 get 请求 {}", &id);
     return re;
 }

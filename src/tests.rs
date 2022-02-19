@@ -1,19 +1,17 @@
+use crate::ms_tts::MsTtsMsgRequest;
 
-use crate::ms_tts::{ MsTtsMsgRequest};
+use bytes::BytesMut;
 
-use bytes::{BytesMut};
-
+use fancy_regex::Regex;
 use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::Config;
+use num::Float;
 use std::thread;
 use std::time::Duration;
-use fancy_regex::Regex;
-use num::Float;
 
 // use json::JsonValue;
-
 
 use super::*;
 
@@ -59,6 +57,48 @@ fn test4() {
     for i in 1..5 {
         println!("hi number {} from the main thread!", i);
         thread::sleep(Duration::from_millis(1));
+    }
+}
+
+
+///
+/// 测试微软服务器连通性
+#[tokio::test]
+async fn test_ms_server_connectivity_cn() {
+    init_log();
+    info!("开始测试服务器连通性");
+    for i in crate::ms_tts::MS_TTS_SERVER_CHINA_LIST {
+        info!("[{}]", i);
+        let kk = crate::ms_tts::new_websocket_by_select_server(Some(i)).await;
+        assert!(kk.is_ok());
+    }
+
+}
+
+
+/// 测试微软服务器连通性
+#[tokio::test]
+async fn test_ms_server_connectivity_cn_tw() {
+    init_log();
+    info!("开始测试服务器连通性");
+
+    for i in crate::ms_tts::MS_TTS_SERVER_CHINA_TW_LIST {
+        info!("[{}]", i);
+        let kk = crate::ms_tts::new_websocket_by_select_server(Some(i)).await;
+        assert!(kk.is_ok());
+    }
+
+}
+
+/// 测试微软服务器连通性
+#[tokio::test]
+async fn test_ms_server_connectivity_cn_hk() {
+    init_log();
+    info!("开始测试服务器连通性");
+    for i in crate::ms_tts::MS_TTS_SERVER_CHINA_HK_LIST {
+        info!("[{}]", i);
+        let kk = crate::ms_tts::new_websocket_by_select_server(Some(i)).await;
+        assert!(kk.is_ok());
     }
 }
 
@@ -233,7 +273,6 @@ async fn test_serialize() {
     //let adsf:Vec<u8> = postcard::to_allocvec(&test).unwrap();
 }
 
-
 // #[tokio::test]
 #[test]
 fn test_regex() {
@@ -241,12 +280,15 @@ fn test_regex() {
     info!("test_regex");
 
     let re = Regex::new(r"^\s*$").unwrap();
-    let result = re.is_match(r#"
-asdfasdf"#).unwrap();
-    info!("{}",result);
+    let result = re
+        .is_match(
+            r#"
+asdfasdf"#,
+        )
+        .unwrap();
+    info!("{}", result);
     thread::sleep(Duration::from_secs(5));
 }
-
 
 #[tokio::test]
 // #[test]
@@ -257,7 +299,7 @@ async fn test_get_ms_tts_config() {
     let kk = crate::ms_tts::get_ms_tts_config().await;
     if let Some(s) = kk {
         debug!("请求成功");
-        info!("{:?}",s);
+        info!("{:?}", s);
     } else {
         debug!("请求失败");
     }
@@ -266,10 +308,6 @@ async fn test_get_ms_tts_config() {
     thread::sleep(Duration::from_secs(5));
 }
 
-
-
-
-
 #[tokio::test]
 // #[test]
 async fn test_ms_tts_config() {
@@ -277,9 +315,11 @@ async fn test_ms_tts_config() {
     debug!("test_get_ms_tts_config");
 
     let kk_s = crate::ms_tts::get_ms_tts_config().await.unwrap();
-    info!("{:?}",kk_s);
-    info!("en-US: {}",kk_s.voices_list.by_locale_map.get("en-US").unwrap().len());
-
+    info!("{:?}", kk_s);
+    info!(
+        "en-US: {}",
+        kk_s.voices_list.by_locale_map.get("en-US").unwrap().len()
+    );
 
     // 411
 
@@ -287,29 +327,27 @@ async fn test_ms_tts_config() {
     thread::sleep(Duration::from_secs(5));
 }
 
-
-
 #[tokio::test]
 // #[test]
 async fn test_float_calculate() {
     init_log();
     debug!("test_float_calculate");
-    let x:f32 = 3.14159;
-
+    let x: f32 = 3.14159;
 
     let kk = num::BigInt::parse_bytes(b"2", 10);
     let sin_x = x.sin();
-    println!("sin({}) = {}",x,sin_x );
+    println!("sin({}) = {}", x, sin_x);
     let style = 1.6666666666666666666666666666666;
     let kk_s = 100.00 * style - 100.00;
 
-    info!("{:.0}",kk_s);
+    info!("{:.0}", kk_s);
 
     //
     thread::sleep(Duration::from_secs(5));
 }
 
 use urlencoding::decode as url_decode;
+
 #[tokio::test]
 // #[test]
 async fn test_url_decode() {
@@ -329,7 +367,7 @@ async fn test_url_decode() {
         }
     };
 
-    info!("{}",text_tmp2);
+    info!("{}", text_tmp2);
     //
     thread::sleep(Duration::from_secs(5));
 }
