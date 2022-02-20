@@ -27,8 +27,11 @@ pub(crate) fn init_log() {
     let config = Config::builder()
         .appender(Appender::builder().build("stdout", Box::new(stdout)))
         .appender(Appender::builder().build("file", Box::new(requests)))
-        .logger(Logger::builder().build("rustls", LevelFilter::Info))
-        .logger(Logger::builder().build("tungstenite", LevelFilter::Info))
+        .logger(Logger::builder().build("reqwest", LevelFilter::Warn))
+        .logger(Logger::builder().build("rustls", LevelFilter::Warn))
+        .logger(Logger::builder().build("tungstenite", LevelFilter::Warn))
+        .logger(Logger::builder().build("actix_server::builder", LevelFilter::Warn))
+        .logger(Logger::builder().build("hyper", LevelFilter::Warn))
         // .logger(Logger::builder()
         //     .appender("file")
         //     .additive(true)
@@ -37,7 +40,7 @@ pub(crate) fn init_log() {
             Root::builder()
                 .appender("stdout")
                 .appender("file")
-                .build(LevelFilter::Debug),
+                .build(LevelFilter::Info),
         )
         .unwrap();
 

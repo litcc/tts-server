@@ -6,7 +6,7 @@ use fancy_regex::Regex;
 use futures_util::stream::SplitSink;
 use futures_util::{SinkExt, StreamExt};
 use itertools::Itertools;
-use log::{debug, info, trace};
+use log::{debug, info, trace, warn};
 use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use rand::Rng;
+use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
@@ -28,9 +29,6 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{client_async_with_config, WebSocketStream};
 
 use crate::utils::{binary_search, get_system_ca_config, random_string};
-
-//log::set_max_level(LevelFilter::Trace);
-//"202.89.233.100","202.89.233.101" speech.platform.bing.com
 
 // "Path:audio\r\n"
 pub(crate) static TAG_BODY_SPLIT: [u8; 12] = [80, 97, 116, 104, 58, 97, 117, 100, 105, 111, 13, 10];
@@ -91,6 +89,44 @@ pub(crate) static MS_TTS_SERVER_CHINA_TW_LIST: [&str; 12] = [
     "114.46.186.185",
 ];
 
+
+pub(crate) static MS_TTS_QUALITY_LIST: [&str; 32] = [
+    "audio-16khz-128kbitrate-mono-mp3",
+    "audio-16khz-16bit-32kbps-mono-opus",
+    "audio-16khz-16kbps-mono-siren",
+    "audio-16khz-32kbitrate-mono-mp3",
+    "audio-16khz-64kbitrate-mono-mp3",
+    "audio-24khz-160kbitrate-mono-mp3",
+    "audio-24khz-16bit-24kbps-mono-opus",
+    "audio-24khz-16bit-48kbps-mono-opus",
+    "audio-24khz-48kbitrate-mono-mp3",
+    "audio-24khz-96kbitrate-mono-mp3	",
+    "audio-48khz-192kbitrate-mono-mp3",
+    "audio-48khz-96kbitrate-mono-mp3",
+    "ogg-16khz-16bit-mono-opus",
+    "ogg-24khz-16bit-mono-opus",
+    "ogg-48khz-16bit-mono-opus",
+    "raw-16khz-16bit-mono-pcm",
+    "raw-16khz-16bit-mono-truesilk",
+    "raw-24khz-16bit-mono-pcm",
+    "raw-24khz-16bit-mono-truesilk",
+    "raw-48khz-16bit-mono-pcm",
+    "raw-8khz-16bit-mono-pcm",
+    "raw-8khz-8bit-mono-alaw",
+    "raw-8khz-8bit-mono-mulaw",
+    "riff-16khz-16bit-mono-pcm",
+    // "riff-16khz-16kbps-mono-siren",/*弃用*/
+    "riff-24khz-16bit-mono-pcm",
+    "riff-48khz-16bit-mono-pcm",
+    "riff-8khz-16bit-mono-pcm",
+    "riff-8khz-8bit-mono-alaw",
+    "riff-8khz-8bit-mono-mulaw",
+    "webm-16khz-16bit-mono-opus",
+    "webm-24khz-16bit-24kbps-mono-opus",
+    "webm-24khz-16bit-mono-opus",
+];
+
+
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct MsTtsMsgRequest {
     // 待生成文本
@@ -138,18 +174,10 @@ impl Into<event_bus::message::Body> for MsTtsMsgRequest {
     }
 }
 
-struct MsTtsMsgResponse {
-    // 请求id
-    pub request_id: String,
-    // 音频数据
-    pub audio_data: Vec<u8>,
-}
-
 type WebsocketRt = SplitSink<WebSocketStream<TlsStream<TcpStream>>, Message>;
 
 static SOCKET_TX: OnceCell<Arc<Mutex<Option<WebsocketRt>>>> = OnceCell::new();
 
-// static MS_TTS_DATA_CACHE: Mutex<HashMap<String, BytesMut>> = Mutex::new(HashMap::new());
 
 pub(crate) struct MsTtsCache {
     pub(crate) data: BytesMut,
@@ -164,27 +192,20 @@ static MS_TTS_DATA_CACHE: Lazy<Arc<HashMap<String, Mutex<MsTtsCache>>>> = Lazy::
 
 static MS_TTS_GET_NEW: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
 
-// static DO_INVOKE: AtomicBool = AtomicBool::new(true);
-
-// static mut MS_TTS_DATA_CACHE: HashMap<String, Mutex<MsTtsCache>> = HashMap::new();
 
 pub(crate) async fn register_service() {
     debug!("register_service");
 
     crate::GLOBAL_EB.consumer("tts_ms", |fn_msg| async move {
         let id = random_string(5);
-        // info!("consumer {} 1",id);
         let eb_msg = fn_msg.msg.clone();
         let eb = Arc::clone(&fn_msg.eb);
         let ll = Bytes::from(eb_msg.body().await.as_bytes().expect("event_bus[ms-tts]: body is not bytes").to_vec());
         let request = MsTtsMsgRequest::from_bytes(ll);
-        // info!("consumer {} 2",id);
         let tx_socket = Arc::clone(SOCKET_TX.get_or_init(|| {
             Arc::new(Mutex::new(None))
         }));
-        // info!("consumer {} 3",id);
 
-        // info!("consumer {} 4",id);
         if !MS_TTS_GET_NEW.load(Ordering::Relaxed) && !tx_socket.clone().lock().await.is_some() {
             MS_TTS_GET_NEW.store(true, Ordering::Release);
             debug!("websocket is not connected");
@@ -200,26 +221,17 @@ pub(crate) async fn register_service() {
                     *tx_socket.clone().lock().await = Some(tx_tmp);
                     let tx_tmp1 = Arc::clone(&tx_socket);
                     trace!("启动消息处理线程");
-                    // let eb_clone1 = eb.clone();
                     eb.runtime.spawn(async move {
                         let tx_r = tx_tmp1.clone();
                         let mut rx_r = rx_tmp;
                         loop {
-                            // rx_r.
-                            // rx_r.for_each(|message| async{
-                            //
-                            // }).await;
                             let msg = rx_r.next().await.unwrap();
                             match msg {
                                 Ok(m) => {
-                                    // eb_clone1.runtime.spawn(async move {})
-
-
                                     trace!("收到消息");
                                     match m {
                                         Message::Ping(s) => {
                                             trace!("收到ping消息: {:?}", s);
-                                            // tx_socket.send(Message::Pong(s)).await.unwrap();
                                         }
                                         Message::Pong(s) => {
                                             trace!("收到pong消息: {:?}", s);
@@ -277,7 +289,7 @@ pub(crate) async fn register_service() {
                         *tx_r.lock().await = None;
                     });
                     trace!("准备跳出循环");
-                    break 'outer; //
+                    break 'outer;
                 } else {
                     trace!("reconnection websocket");
                     sleep(Duration::from_secs(1)).await;
@@ -292,16 +304,11 @@ pub(crate) async fn register_service() {
             }
         }
         trace!("存在websocket连接，继续处理");
-        // crate::RUNTIME.get().unwrap().spawn(async move {
-        //
-        // });
-        // info!("consumer {} 5",id);
+
         debug!("发送请求: {} | {:?}",request.request_id, request);
         let msg1 = String::from("Path:speech.config\r\nContent-Type:application/json;charset=utf-8\r\n\r\n{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"},\"language\":{\"autoDetection\":false}}}}\r\n");
 
-        // let request_id = random_string(32);
         let msg2 = format!("Path:ssml\r\nX-RequestId:{}\r\nContent-Type:application/ssml+xml\r\n\r\n<speak xmlns=\"http://www.w3.org/2001/10/synthesis\" xmlns:mstts=\"http://www.w3.org/2001/mstts\" xmlns:emo=\"http://www.w3.org/2009/10/emotionml\" version=\"1.0\" xml:lang=\"zh-CN\"><voice name=\"{}\"><s /><mstts:express-as style=\"{}\"><prosody rate=\"{}%\" pitch=\"{}%\">{}</prosody></mstts:express-as><s /></voice></speak>", request.request_id, "zh-CN-XiaoxiaoNeural", "general", "0", "0", request.text);
-        // info!("consumer {} 6",id);
         // 向 websocket 发送消息
         unsafe {
             Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).insert(request.request_id, Mutex::new(MsTtsCache {
@@ -349,8 +356,8 @@ pub(crate) async fn new_websocket() -> Result<WebSocketStream<TlsStream<TcpStrea
     match args.server_area {
         ServerArea::Default => {
             info!("连接至官方服务器");
-            // new_websocket_by_select_server(None).await
-            new_websocket_by_select_server(Some("171.117.98.148")).await
+            new_websocket_by_select_server(None).await
+            // new_websocket_by_select_server(Some("171.117.98.148")).await
         }
         ServerArea::China => {
             info!("连接至内陆服务器");
@@ -514,145 +521,130 @@ pub struct MsTtsConfig {
     pub quality_list: Vec<String>,
 }
 
+// 空白音频
+const BLANK_MUSIC_FILE: &'static [u8] = include_bytes!("resource/blank.mp3");
+
+// 发音人配置
+const SPEAKERS_LIST_FILE: &'static [u8] = include_bytes!("resource/voices_list.json");
+
 ///
 /// 获取微软文本转语音支持的发音人配置
 ///
 ///
 pub(crate) async fn get_ms_tts_config() -> Option<MsTtsConfig> {
-    let client = reqwest::Client::new();
-    trace!("开始请求token");
-    let resp = client
-        .get("https://azure.microsoft.com/zh-cn/services/cognitive-services/text-to-speech/")
-        .send()
-        .await
-        .expect("get token error");
-    let html = resp.text().await.unwrap();
-    //debug!("html内容：{}",html);
-    let token = Regex::new(r#"token: "([a-zA-Z0-9\._-]+)""#)
-        .unwrap()
-        .captures(&html)
-        .unwrap();
-    let token_str = match token {
-        Some(t) => {
-            let df = t.get(1).unwrap().as_str();
-            trace!("token获取成功：{}", df);
-            Some(df.to_owned())
-        }
-        None => None,
-    };
-    if token_str.is_none() {
-        return None;
-    }
-    let region = Regex::new(r#"region: "([a-z0-9]+)""#)
-        .unwrap()
-        .captures(&html)
-        .unwrap();
-    let region_str = match region {
-        Some(r) => {
-            let df = r.get(1).unwrap().as_str();
-            trace!("region获取成功：{}", df);
-            Some(df.to_owned())
-        }
-        None => None,
-    };
-    if region_str.is_none() {
-        return None;
-    }
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        "Authorization",
-        format!("Bearer {}", token_str.unwrap()).parse().unwrap(),
-    );
-    headers.insert("Accept", "application/json".parse().unwrap());
+    let args: crate::AppArgs = crate::AppArgs::parse();
 
-    let config_response = client
-        .get(format!(
-            "https://{}.tts.speech.microsoft.com/cognitiveservices/voices/list",
-            region_str.unwrap()
-        ))
-        .headers(headers)
-        .send()
-        .await
-        .unwrap();
-    let config_json_text = config_response.text().await;
-
-    if let Ok(json_text) = config_json_text {
-        let tmp_list_1: Vec<VoicesItem> = serde_json::from_str(&json_text).unwrap();
-
-        trace!("长度:{}", tmp_list_1.len());
-
-        let mut raw_data: Vec<Arc<VoicesItem>> = Vec::new();
-        let mut voices_name_list: HashSet<String> = HashSet::new();
-        let mut by_voices_name_map: HashMap<String, Arc<VoicesItem>> = HashMap::new();
-
-        tmp_list_1.iter().for_each(|item| {
-            let new = Arc::new(item.clone());
-            raw_data.push(new.clone());
-            voices_name_list.insert(item.short_name.to_string());
-            by_voices_name_map.insert(item.short_name.to_string(), new);
-        });
-
-        let mut by_locale_map: HashMap<String, Vec<Arc<VoicesItem>>> = HashMap::new();
-
-        let new_iter = raw_data.iter();
-        for (key, group) in &new_iter.group_by(|i| i.locale.as_str()) {
-            let mut locale_vec_list: Vec<Arc<VoicesItem>> = Vec::new();
-
-            group.for_each(|j| {
-                locale_vec_list.push(j.clone());
-            });
-            by_locale_map.insert(key.to_owned(), locale_vec_list);
-        }
-
-        let v_list = VoicesList {
-            voices_name_list,
-            raw_data,
-            by_voices_name_map,
-            by_locale_map,
+    let config_json_text = if args.do_not_update_speakers_list {
+        String::from_utf8(SPEAKERS_LIST_FILE.to_vec()).unwrap()
+    } else {
+        let client = reqwest::Client::new();
+        trace!("开始请求token");
+        let resp = client
+            .get("https://azure.microsoft.com/zh-cn/services/cognitive-services/text-to-speech/")
+            .send()
+            .await
+            .expect("get token error");
+        let html = resp.text().await.unwrap();
+        //debug!("html内容：{}",html);
+        let token = Regex::new(r#"token: "([a-zA-Z0-9\._-]+)""#)
+            .unwrap()
+            .captures(&html)
+            .unwrap();
+        let token_str = match token {
+            Some(t) => {
+                let df = t.get(1).unwrap().as_str();
+                trace!("token获取成功：{}", df);
+                Some(df.to_owned())
+            }
+            None => None,
         };
+        if token_str.is_none() {
+            return None;
+        }
+        let region = Regex::new(r#"region: "([a-z0-9]+)""#)
+            .unwrap()
+            .captures(&html)
+            .unwrap();
+        let region_str = match region {
+            Some(r) => {
+                let df = r.get(1).unwrap().as_str();
+                trace!("region获取成功：{}", df);
+                Some(df.to_owned())
+            }
+            None => None,
+        };
+        if region_str.is_none() {
+            return None;
+        }
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "Authorization",
+            format!("Bearer {}", token_str.unwrap()).parse().unwrap(),
+        );
+        headers.insert("Accept", "application/json".parse().unwrap());
 
-        let quality = vec![
-            "audio-16khz-128kbitrate-mono-mp3",
-            "audio-16khz-16bit-32kbps-mono-opus",
-            "audio-16khz-16kbps-mono-siren",
-            "audio-16khz-32kbitrate-mono-mp3",
-            "audio-16khz-64kbitrate-mono-mp3",
-            "audio-24khz-160kbitrate-mono-mp3",
-            "audio-24khz-16bit-24kbps-mono-opus",
-            "audio-24khz-16bit-48kbps-mono-opus",
-            "audio-24khz-48kbitrate-mono-mp3",
-            "audio-24khz-96kbitrate-mono-mp3	",
-            "audio-48khz-192kbitrate-mono-mp3",
-            "audio-48khz-96kbitrate-mono-mp3",
-            "ogg-16khz-16bit-mono-opus",
-            "ogg-24khz-16bit-mono-opus",
-            "ogg-48khz-16bit-mono-opus",
-            "raw-16khz-16bit-mono-pcm",
-            "raw-16khz-16bit-mono-truesilk",
-            "raw-24khz-16bit-mono-pcm",
-            "raw-24khz-16bit-mono-truesilk",
-            "raw-48khz-16bit-mono-pcm",
-            "raw-8khz-16bit-mono-pcm",
-            "raw-8khz-8bit-mono-alaw",
-            "raw-8khz-8bit-mono-mulaw",
-            "riff-16khz-16bit-mono-pcm",
-            // "riff-16khz-16kbps-mono-siren",/*弃用*/
-            "riff-24khz-16bit-mono-pcm",
-            "riff-48khz-16bit-mono-pcm",
-            "riff-8khz-16bit-mono-pcm",
-            "riff-8khz-8bit-mono-alaw",
-            "riff-8khz-8bit-mono-mulaw",
-            "webm-16khz-16bit-mono-opus",
-            "webm-24khz-16bit-24kbps-mono-opus",
-            "webm-24khz-16bit-mono-opus",
-        ];
+        let config_response = client
+            .get(format!(
+                "https://{}.tts.speech.microsoft.com/cognitiveservices/voices/list",
+                region_str.unwrap()
+            ))
+            .headers(headers)
+            .send()
+            .await
+            .unwrap();
+        let config_respone_tmp = config_response.text().await;
+        if let Ok(json_text) = config_respone_tmp {
+            // tokio::fs::File::create("voices_list.json").await
+            //     .unwrap().write_all(json_text.as_bytes()).await.unwrap();
+            json_text
+        } else {
+            warn!("从微软服务器更新发音人列表失败！改为使用本地缓存");
+            String::from_utf8(SPEAKERS_LIST_FILE.to_vec()).unwrap()
+        }
+    };
 
-        let mut quality_list_tmp: Vec<String> = quality.iter().map(|i| i.to_string()).collect_vec();
 
-        return Some(MsTtsConfig {
-            voices_list: v_list,
-            quality_list: quality_list_tmp,
+    let tmp_list_1: Vec<VoicesItem> = serde_json::from_str(&config_json_text).unwrap();
+
+    trace!("长度:{}", tmp_list_1.len());
+
+    let mut raw_data: Vec<Arc<VoicesItem>> = Vec::new();
+    let mut voices_name_list: HashSet<String> = HashSet::new();
+    let mut by_voices_name_map: HashMap<String, Arc<VoicesItem>> = HashMap::new();
+
+    tmp_list_1.iter().for_each(|item| {
+        let new = Arc::new(item.clone());
+        raw_data.push(new.clone());
+        voices_name_list.insert(item.short_name.to_string());
+        by_voices_name_map.insert(item.short_name.to_string(), new);
+    });
+
+    let mut by_locale_map: HashMap<String, Vec<Arc<VoicesItem>>> = HashMap::new();
+
+    let new_iter = raw_data.iter();
+    for (key, group) in &new_iter.group_by(|i| i.locale.as_str()) {
+        let mut locale_vec_list: Vec<Arc<VoicesItem>> = Vec::new();
+
+        group.for_each(|j| {
+            locale_vec_list.push(j.clone());
         });
+        by_locale_map.insert(key.to_owned(), locale_vec_list);
     }
+
+    let v_list = VoicesList {
+        voices_name_list,
+        raw_data,
+        by_voices_name_map,
+        by_locale_map,
+    };
+
+
+    let quality_list_tmp: Vec<String> = MS_TTS_QUALITY_LIST.iter().map(|i| i.to_string()).collect_vec();
+
+    return Some(MsTtsConfig {
+        voices_list: v_list,
+        quality_list: quality_list_tmp,
+    });
+
     None
 }

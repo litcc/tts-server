@@ -3,12 +3,13 @@ use actix_web::http::StatusCode;
 use actix_web::web::{get, post};
 use actix_web::{get, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
 use fancy_regex::Regex;
-use log::debug;
+use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 use std::time::Duration;
+use actix_web::dev::Server;
 use tokio::sync::Mutex;
 use tokio::time::timeout;
 
@@ -20,6 +21,7 @@ use urlencoding::decode as url_decode;
 #[derive(Debug)]
 pub enum ControllerError {
     TextNone(String),
+    CONNECT_MS_SERVER_ERROR(String),
 }
 
 impl Display for ControllerError {
@@ -96,7 +98,7 @@ impl MsTtsMsgRequestJson {
                 .unwrap()
                 .replace_all(&result, ";")
                 .to_string();
-            // let result = Regex::new(r"，").unwrap().replace_all(&result,",").to_string();
+
             result
         };
         let ms_tts_config = &MS_TTS_CONFIG.get().unwrap();
@@ -127,8 +129,9 @@ impl MsTtsMsgRequestJson {
             if let Some(style) = &self.style {
                 match &informant_item.style_list {
                     Some(e) => {
-                        if e.contains(style) {
-                            style.to_owned()
+                        let s_t = style.to_lowercase();
+                        if e.contains(&s_t) {
+                            s_t.to_owned()
                         } else {
                             default
                         }
@@ -202,22 +205,31 @@ impl MsTtsMsgRequestJson {
 
 /// 监听
 #[actix_web::main]
-pub(crate) async fn register_service(address:String,port:String) {
-    HttpServer::new(|| {
-        App::new().service(
+pub(crate) async fn register_service(address: String, port: String) {
+
+    let web_server = HttpServer::new(|| {
+        let mut app = App::new();
+
+        app = app.service(
             web::resource("/tts-ms")
-                // .name("user_detail")
-                // .guard(guard::Header("content-type", "application/json"))
                 .route(web::get().to(tts_ms_get_controller))
                 .route(web::post().to(tts_ms_post_controller)),
-        )
-    })
-    .bind(format!("{}:{}",address,port))
-    .expect(format!("启动api服务失败，无法监听 {}:{}",address,port).as_str())
-    .workers(1)
-    .run()
-    .await
-    .unwrap();
+        );
+
+        app
+    });
+    let web_server = web_server.bind(format!("{}:{}", address, port));
+    match web_server {
+        Ok(server) => {
+
+            info!("启动 Api 服务成功 接口地址: http://{}:{}/tts-ms", address, port);
+            server.workers(1).max_connections(1000).backlog(1000)
+                .run().await.unwrap();
+        }
+        Err(e) => {
+            error!("启动 Api 服务失败，无法监听 {}:{}",address,port);
+        }
+    }
 }
 
 async fn tts_ms_post_controller(
@@ -228,41 +240,7 @@ async fn tts_ms_post_controller(
     // let (tx, mut rx) = tokio::sync::oneshot::channel();
     let request_tmp = body.to_ms_request(id.clone());
     info!("收到post请求 {:?}", request_tmp);
-    let re = match request_tmp {
-        Ok(r) => {
-            debug!("请求订阅项");
-            let kk = crate::GLOBAL_EB.request("tts_ms", r.into()).await;
-            debug!("响应订阅项");
-            match kk {
-                Some(data) => {
-                    let mut respone =
-                        HttpResponse::build(StatusCode::OK).body(data.as_bytes().unwrap().to_vec());
-                    respone.headers_mut().insert(
-                        actix_web::http::header::CONTENT_TYPE,
-                        "audio/*".parse().unwrap(),
-                    );
-
-                    respone
-                }
-                None => {
-                    let mut respone = HttpResponse::build(StatusCode::OK).body("未知错误");
-                    respone.headers_mut().insert(
-                        actix_web::http::header::CONTENT_TYPE,
-                        "text".parse().unwrap(),
-                    );
-                    respone
-                }
-            }
-        }
-        Err(e) => {
-            let mut respone = HttpResponse::build(StatusCode::OK).body("未知错误");
-            respone.headers_mut().insert(
-                actix_web::http::header::CONTENT_TYPE,
-                "text".parse().unwrap(),
-            );
-            respone
-        }
-    };
+    let re = request_ms_tts(request_tmp).await;
     debug!("响应 post 请求 {}", &id);
     return re;
 }
@@ -272,29 +250,29 @@ async fn tts_ms_get_controller(
     request: web::Query<MsTtsMsgRequestJson>,
 ) -> HttpResponse {
     let test_id = random_string(5);
-    info!("controller {} -1", test_id);
     let id = random_string(32);
-    // let (tx, mut rx) = tokio::sync::oneshot::channel();
     let request_tmp = request.to_ms_request(id.clone());
-    info!("controller {} -2", test_id);
     info!("收到 get 请求 {:?}", request_tmp);
-    let re = match request_tmp {
+    let re = request_ms_tts(request_tmp).await;
+    debug!("响应 get 请求 {}", &id);
+    return re;
+}
+
+
+async fn request_ms_tts(data: Result<MsTtsMsgRequest, ControllerError>) -> HttpResponse {
+    match data {
         Ok(r) => {
             debug!("请求微软语音服务器");
-            info!("controller {} -3", test_id);
             let kk = crate::GLOBAL_EB.request("tts_ms", r.into()).await;
-            info!("controller {} -4", test_id);
             debug!("请求微软语音完成");
             match kk {
                 Some(data) => {
-                    info!("controller {} -5", test_id);
                     let mut respone =
                         HttpResponse::build(StatusCode::OK).body(data.as_bytes().unwrap().to_vec());
                     respone.headers_mut().insert(
                         actix_web::http::header::CONTENT_TYPE,
                         "audio/*".parse().unwrap(),
                     );
-                    info!("controller {} -6", test_id);
                     respone
                 }
                 None => {
@@ -315,13 +293,11 @@ async fn tts_ms_get_controller(
             );
             respone
         }
-    };
-    info!("controller {} -7", test_id);
-    debug!("响应 get 请求 {}", &id);
-    return re;
+    }
 }
 
-#[get("/{id}/{name}/index.html")]
-async fn index1(web::Path((id, name)): web::Path<(u32, String)>) -> impl Responder {
-    return format!("Hello {}! id:{}", name, id);
-}
+
+// #[get("/{id}/{name}/index.html")]
+// async fn index1(web::Path((id, name)): web::Path<(u32, String)>) -> impl Responder {
+//     return format!("Hello {}! id:{}", name, id);
+// }

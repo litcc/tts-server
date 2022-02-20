@@ -1,6 +1,3 @@
-//#![feature(get_mut_unchecked)]
-// #![windows_subsystem = "windows"]
-#![feature(async_closure)]
 #![feature(get_mut_unchecked)]
 
 extern crate core;
@@ -14,6 +11,7 @@ pub use log::*;
 use once_cell::sync::Lazy;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::signal;
 
 mod controller;
 mod log_utils;
@@ -26,11 +24,58 @@ pub mod utils;
 #[clap(author, version)]
 #[clap(name = "tts-server")]
 #[clap(author = "litcc")]
-#[clap(about = None, long_about = "TTS Api Server 软件仅供学习交流，严禁用于商业用途，请于24小时内删除！")]
-// #[clap(help = "TTS api server")]
+#[clap(about = r##"TTS Api Server 软件仅供学习交流，严禁用于商业用途，请于24小时内删除！
+    目前已实现接口有：[微软文本转语音] 后续看情况可能会再加入其他接口。
+
+    微软文本转语音接口： /tts-ms
+        接口支持 get,post 请求, get请求时参数拼接在url上,使用post时,参数请使用json body传递。
+        目前支持参数有:
+            text - 待转换内容 必填参数
+            informant - 发音人 可选参数,大小写严格, 默认为 zh-CN-XiaoxiaoNeural
+            style - 发音风格 可选参数，默认为 general
+            rate - 语速 可选参数 值范围 0-3 可保留两位小数, 默认为 1
+            pitch - 音调 可选参数 值范围 0-2 可保留两位小数, 默认为 1
+            quality - 音频格式 可选参数,默认为 audio-24khz-48kbitrate-mono-mp3
+
+        基本使用教程:
+            举例： 在开源软件[阅读]App中可以使用如下配置来使用该接口
+                http://ip:port/tts-ms,{
+                    "method": "POST",
+                    "body": {
+                        "informant": "zh-CN-XiaoxiaoNeural",
+                        "style": "general",
+                        "rate": {{ speakSpeed / 15 }},
+                        "text": "{{java.encodeURI(speakText)}}"
+                    }
+                }
+"##)]
+#[clap(long_about = r##"TTS Api Server 软件仅供学习交流，严禁用于商业用途，请于24小时内删除！
+    目前已实现接口有：[微软文本转语音] 后续看情况可能会再加入其他接口。
+
+    微软文本转语音接口： /tts-ms
+        接口支持 get,post 请求, get请求时参数拼接在url上,使用post时,参数请使用json body传递。
+        目前支持参数有:
+            text - 待转换内容 必填参数
+            informant - 发音人 可选参数,大小写严格, 默认为 zh-CN-XiaoxiaoNeural
+            style - 发音风格 可选参数，默认为 general
+            rate - 语速 可选参数 值范围 0-3 可保留两位小数, 默认为 1
+            pitch - 音调 可选参数 值范围 0-2 可保留两位小数, 默认为 1
+            quality - 音频格式 可选参数,默认为 audio-24khz-48kbitrate-mono-mp3
+
+        基本使用教程:
+            举例： 在开源软件[阅读]App中可以使用如下配置来使用该接口
+                http://ip:port/tts-ms,{
+                    "method": "POST",
+                    "body": {
+                        "informant": "zh-CN-XiaoxiaoNeural",
+                        "style": "general",
+                        "rate": {{ speakSpeed / 15 }},
+                        "text": "{{java.encodeURI(speakText)}}"
+                    }
+                }
+"##)]
 pub(crate) struct AppArgs {
     /// 指定连接渠道
-    // #[clap(long, value_name = "area", default_value_t = String::from("us"))]
     #[clap(long, arg_enum, value_name = "area", default_value_t = ServerArea::Default)]
     server_area: ServerArea,
 
@@ -41,9 +86,22 @@ pub(crate) struct AppArgs {
     /// 监听端口
     #[clap(long, value_name = "prot", default_value_t = String::from("8080"))]
     listen_port: String,
+
+    /// 是否从官方更新发音人列表
+    #[clap(long)]
+    do_not_update_speakers_list: bool,
+
+    /// 显示可用发音人列表
+    #[clap(long)]
+    show_informant_list: bool,
+
+    /// 显示音频质量参数列表
+    #[clap(long)]
+    show_quality_list: bool,
+
 }
 
-#[derive(Debug,Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum)]
 enum ServerArea {
     Default,
     China,
@@ -57,32 +115,51 @@ pub(crate) static GLOBAL_EB: Lazy<Arc<EventBus<VertxMessage>>> = Lazy::new(|| {
     Arc::new(eb)
 });
 
-#[tokio::main]
-async fn main() {
+// #[tokio::main]
+// async
+fn main() {
+    let runtime = tokio::runtime::Runtime::new().unwrap();
 
     log_utils::init_log();
-    // info!("软件仅供学习交流，严禁用于商业用途，请于24小时内删除！");
     let args: AppArgs = AppArgs::parse();
-    println!("Hello {:?}!", args);
-    GLOBAL_EB.start().await;
-    ms_tts::register_service().await;
-    controller::register_service(args.listen_address, args.listen_port);
-    //
-    //
-    // let request_id = random_string(32);
-    // let kkk = MsTtsMsgRequest {
-    //     text: "你好啊".to_string(),
-    //     request_id: request_id,
-    //     informant: "".to_string(),
-    //     style: "".to_string(),
-    //     rate: "".to_string(),
-    //     pitch: "".to_string(),
-    //     quality: "".to_string(),
-    // };
-    // debug!("发送请求");
-    // //GLOBAL_EB.send("ms_tts", Body::ByteArray(kkk.to_bytes().to_vec())).await;
-    // GLOBAL_EB.send("ms_tts", kkk.into());
-    //
-    //
-    // tokio::time::sleep(Duration::from_secs(120)).await;
+
+    if args.show_quality_list {
+        println!("当前可使用的音频参数有: \n{:?}", ms_tts::MS_TTS_QUALITY_LIST);
+        std::process::exit(0);
+    }
+
+    if args.show_informant_list {
+
+        ms_tts::MS_TTS_CONFIG.get_or_init(|| runtime.block_on(async  {
+            ms_tts::get_ms_tts_config().await.unwrap()
+        }));
+        println!("当前可使用的发音人参数有: \n{:?}", ms_tts::MS_TTS_CONFIG.get().unwrap().voices_list.voices_name_list);
+        std::process::exit(0);
+    }
+
+    info!("准备启动，程序参数: {:?}", args);
+    runtime.block_on(async move {
+        GLOBAL_EB.start().await;
+        ms_tts::register_service().await;
+        controller::register_service(args.listen_address.clone(), args.listen_port.clone());
+        info!("谢谢使用，希望能收到您对软件的看法和建议！");
+        std::process::exit(0);
+    });
+
+
+    // loop {
+    //     match signal::ctrl_c().await {
+    //         Ok(()) => {
+    //             std::process::exit(0);
+    //         },
+    //         Err(err) => {
+    //             eprintln!("Unable to listen for shutdown signal: {}", err);
+    //             // we also shut down in case of error
+    //         },
+    //     }
+    //     // tokio::time::sleep(Duration::from_secs(120)).await;
+    // }
+    // loop {
+    //     tokio::time::sleep(Duration::from_secs(120)).await;
+    // }
 }
