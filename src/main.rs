@@ -144,20 +144,4 @@ fn main() {
         std::process::exit(0);
     });
 
-
-    // loop {
-    //     match signal::ctrl_c().await {
-    //         Ok(()) => {
-    //             std::process::exit(0);
-    //         },
-    //         Err(err) => {
-    //             eprintln!("Unable to listen for shutdown signal: {}", err);
-    //             // we also shut down in case of error
-    //         },
-    //     }
-    //     // tokio::time::sleep(Duration::from_secs(120)).await;
-    // }
-    // loop {
-    //     tokio::time::sleep(Duration::from_secs(120)).await;
-    // }
 }

@@ -215,10 +215,10 @@ pub(crate) async fn register_service(address: String, port: String) {
     let web_server = web_server.bind(format!("{}:{}", address, port));
     match web_server {
         Ok(server) => {
-            if std::env::consts::OS == "windows" {
-                println!("{}", "windows");
-            } else {
-                info!("启动 Api 服务成功 接口地址: http://{}:{}/tts-ms  自行修改 ip 以及 port", address, port);
+            let local_ip = local_ipaddress::get();
+            info!("启动 Api 服务成功 接口地址已监听至: http://{}:{}/tts-ms  自行修改 ip 以及 port", address, port);
+            if local_ip.is_some() {
+                info!("您当前局域网ip可能为: {} 请自行替换上面的监听地址", local_ip.unwrap());
             }
             server.workers(1).max_connections(1000).backlog(1000)
                 .run().await.unwrap();
