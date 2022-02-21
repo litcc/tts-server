@@ -20,15 +20,15 @@ jobs:
             strip: true
           - os: windows-latest
             archive-name: tts-server-window
-            target: x86_64-apple-darwin
-            rust: nightly
+            target: x86_64-pc-windows-msvc
+            rust: nightly-x86_64-msvc
             file: tts-server.exe
             args: -9
             strip: false
           - os: macos-latest
             archive-name: tts-server-mac
-            target: x86_64-pc-windows-msvc
-            rust: nightly-x86_64-msvc
+            target: x86_64-apple-darwin
+            rust: nightly
             file: tts-server
             args: --best
             strip: true
