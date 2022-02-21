@@ -12,42 +12,77 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            archive-name: tts-server-linux
             target: x86_64-unknown-linux-gnu
-            rust: nightly
             file: tts-server
             args: --best --lzma
             strip: true
-          - os: windows-latest
-            archive-name: tts-server-window
-            target: x86_64-pc-windows-msvc
-            rust: nightly-x86_64-msvc
-            file: tts-server.exe
-            args: -9
-            strip: false
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            file: tts-server
+            args: --best --lzma
+            strip: true
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            file: tts-server
+            args: --best --lzma
+            strip: true
+          - os: ubuntu-latest
+            target: arm-unknown-linux-musleabi
+            file: tts-server
+            args: --best --lzma
+            strip: true
+          - os: ubuntu-latest
+            target: arm-unknown-linux-musleabihf
+            file: tts-server
+            args: --best --lzma
+            strip: true
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+            file: tts-server
+            args: --best --lzma
+            strip: true
+          - os: ubuntu-latest
+            target: mips-unknown-linux-gnu
+            file: tts-server
+            args: --best --lzma
+            strip: true
+          - os: ubuntu-latest
+            target: mips-unknown-linux-musl
+            file: tts-server
+            args: --best --lzma
+            strip: true
+          - os: ubuntu-latest
+            target: mipsel-unknown-linux-gnu
+            file: tts-server
+            args: --best --lzma
+            strip: true
+          - os: ubuntu-latest
+            target: mipsel-unknown-linux-musl
+            file: tts-server
+            args: --best --lzma
+            strip: true
+          - os: ubuntu-latest
+            target: mips64-unknown-linux-gnuabi64
+            file: tts-server
+            args: --best --lzma
+            strip: true
+          - os: ubuntu-latest
+            target: mips64el-unknown-linux-gnuabi64
+            file: tts-server
+            args: --best --lzma
+            strip: true
+
           - os: macos-latest
-            archive-name: tts-server-mac
             target: x86_64-apple-darwin
-            rust: nightly
             file: tts-server
             args: --best
             strip: true
-    #        - build: linux
-    #          os: ubuntu-18.04
-    #          rust: nightly
-    #          target: x86_64-unknown-linux-musl
-    #          binary-name: tts-server-linux
-    #        - build: macos
-    #          os: macos-latest
-    #          rust: nightly
-    #          target: x86_64-apple-darwin
-    #          binary-name: tts-server-mac
-    #        - build: windows
-    #          os: windows-2019
-    #          rust: nightly-x86_64-msvc
-    #          target: x86_64-pc-windows-msvc
-    #          binary-name: tts-server-window.exe
-    #      fail-fast: false
+
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            file: tts-server.exe
+            args: -9
+            strip: false
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -55,30 +90,32 @@ jobs:
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: ${{ matrix.rust }}
+          toolchain: nightly
           profile: minimal
           override: true
           target: ${{ matrix.target }}
-#      - name: Install dependencies
-#        if: matrix.os == 'ubuntu-latest'
-#        run: |
-#          sudo apt install musl-tools -y
+      - name: Install cross
+        run: cargo install cross
+      #      - name: Install dependencies
+      #        if: matrix.os == 'ubuntu-latest'
+      #        run: |
+      #          sudo apt install musl-tools -y
       - name: Build binary
-        run: cargo build --verbose --release --target ${{ matrix.target }} --bin tts-server
+        run: cross build --release --target ${{ matrix.target }}
         env:
           RUST_BACKTRACE: 1
-#      - name: Strip binary (linux and macos)
-#        if: matrix.build == 'linux' || matrix.build == 'macos'
-#        run: strip "target/${{ matrix.target }}/release/tts-server"
+      #      - name: Strip binary (linux and macos)
+      #        if: matrix.build == 'linux' || matrix.build == 'macos'
+      #        run: strip "target/${{ matrix.target }}/release/tts-server"
       - name: Compress binaries
         uses: svenstaro/upx-action@v2
         with:
           file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
           args: ${{ matrix.args }}
           strip: ${{ matrix.strip }}
-#          file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
+      #          file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
       - name: Upload archive
         uses: actions/upload-artifact@v1
         with:
-          name: ${{ matrix.archive-name }}
+          name: tts-server-${{ matrix.target }}.zip
           path: "target/${{ matrix.target }}/release/${{ matrix.file }}"
