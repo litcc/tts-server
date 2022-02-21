@@ -1,0 +1,61 @@
+name: build
+on:
+  push:
+    branches: [ package ]
+  pull_request:
+    branches: [ package ]
+jobs:
+  build:
+    name: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        build: [linux, macos, windows]
+        include:
+        - build: linux
+          os: ubuntu-18.04
+          rust: nightly
+          target: x86_64-unknown-linux-musl
+          binary-name: tts-server-linux
+        - build: macos
+          os: macos-latest
+          rust: nightly
+          target: x86_64-apple-darwin
+          binary-name: tts-server-mac
+        - build: windows
+          os: windows-2019
+          rust: nightly-x86_64-msvc
+          target: x86_64-pc-windows-msvc
+          binary-name: tts-server-window.exe
+      fail-fast: false
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: ${{ matrix.rust }}
+        profile: minimal
+        override: true
+        target: ${{ matrix.target }}
+
+    - name: Build binary
+      run: cargo build --verbose --release --target ${{ matrix.target }}
+      env:
+        RUST_BACKTRACE: 1
+
+    - name: Strip binary (linux and macos)
+      if: matrix.build == 'linux' || matrix.build == 'macos'
+      run: strip "target/${{ matrix.target }}/release/tts-server"
+    - name: Run UPX
+      uses: crazy-max/ghaction-upx@v1
+      with:
+        version: latest
+        file: "target/${{ matrix.target }}/release/${{ matrix.binary-name }}"
+    - name: Upload archive
+      uses: actions/upload-artifact@v1
+      with:
+        name: ${{ matrix.binary-name }}
+        path: "target/${{ matrix.target }}/release/${{ matrix.binary-name }}"
