@@ -99,11 +99,7 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
-          sudo apt-get install gcc g++ libudev-dev pkg-config file make cmake -y
-          sudo apt-get install perl yasm -y
-          sudo apt-get install openssl libudev-dev file curl jq -y
-          sudo apt-get install build-essential libssl-dev git libclang-dev -y
-          sudo apt-get install intltool -y
+          sudo apt-get install gcc g++ libudev-dev pkg-config file make cmake intltool musl-tools perl yasm openssl libssl-dev libudev-dev file curl jq build-essential libssl-dev git libclang-dev -y
 #          sudo apt install librust-openssl-dev -y
       - name: Build binary
         run: cross build --release --target ${{ matrix.target }}
