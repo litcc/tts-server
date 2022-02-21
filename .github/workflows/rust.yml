@@ -6,56 +6,79 @@ on:
     branches: [ package ]
 jobs:
   build:
-    name: build
+    name: build for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        build: [linux, macos, windows]
         include:
-        - build: linux
-          os: ubuntu-18.04
-          rust: nightly
-          target: x86_64-unknown-linux-musl
-          binary-name: tts-server-linux
-        - build: macos
-          os: macos-latest
-          rust: nightly
-          target: x86_64-apple-darwin
-          binary-name: tts-server-mac
-        - build: windows
-          os: windows-2019
-          rust: nightly-x86_64-msvc
-          target: x86_64-pc-windows-msvc
-          binary-name: tts-server-window.exe
-      fail-fast: false
-
+          - os: ubuntu-latest
+            archive-name: tts-server-linux
+            target: x86_64-unknown-linux-musl
+            rust: nightly
+            file: tts-server
+            args: --best --lzma
+            strip: true
+          - os: windows-latest
+            archive-name: tts-server-window
+            target: x86_64-apple-darwin
+            rust: nightly
+            file: tts-server.exe
+            args: -9
+            strip: false
+          - os: macos-latest
+            archive-name: tts-server-mac
+            target: x86_64-pc-windows-msvc
+            rust: nightly-x86_64-msvc
+            file: tts-server
+            args: --best
+            strip: true
+    #        - build: linux
+    #          os: ubuntu-18.04
+    #          rust: nightly
+    #          target: x86_64-unknown-linux-musl
+    #          binary-name: tts-server-linux
+    #        - build: macos
+    #          os: macos-latest
+    #          rust: nightly
+    #          target: x86_64-apple-darwin
+    #          binary-name: tts-server-mac
+    #        - build: windows
+    #          os: windows-2019
+    #          rust: nightly-x86_64-msvc
+    #          target: x86_64-pc-windows-msvc
+    #          binary-name: tts-server-window.exe
+    #      fail-fast: false
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v2
 
-    - name: Install Rust
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: ${{ matrix.rust }}
-        profile: minimal
-        override: true
-        target: ${{ matrix.target }}
-
-    - name: Build binary
-      run: cargo build --verbose --release --target ${{ matrix.target }}
-      env:
-        RUST_BACKTRACE: 1
-
-    - name: Strip binary (linux and macos)
-      if: matrix.build == 'linux' || matrix.build == 'macos'
-      run: strip "target/${{ matrix.target }}/release/tts-server"
-    - name: Run UPX
-      uses: crazy-max/ghaction-upx@v1
-      with:
-        version: latest
-        file: "target/${{ matrix.target }}/release/${{ matrix.binary-name }}"
-    - name: Upload archive
-      uses: actions/upload-artifact@v1
-      with:
-        name: ${{ matrix.binary-name }}
-        path: "target/${{ matrix.target }}/release/${{ matrix.binary-name }}"
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+      - name: Install dependencies
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt install musl-tools -y
+      - name: Build binary
+        run: cargo build --verbose --release --target ${{ matrix.target }} --bin tts-server
+        env:
+          RUST_BACKTRACE: 1
+#      - name: Strip binary (linux and macos)
+#        if: matrix.build == 'linux' || matrix.build == 'macos'
+#        run: strip "target/${{ matrix.target }}/release/tts-server"
+      - name: Compress binaries
+        uses: svenstaro/upx-action@v2
+        with:
+          file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
+          args: ${{ matrix.args }}
+          strip: ${{ matrix.strip }}
+#          file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
+      - name: Upload archive
+        uses: actions/upload-artifact@v1
+        with:
+          name: ${{ matrix.archive-name }}
+          path: "target/${{ matrix.target }}/release/${{ matrix.file }}"
