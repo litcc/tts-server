@@ -92,8 +92,8 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
-            sudo apt-get install gcc g++ llvm libudev-dev pkg-config file make cmake intltool musl-tools perl yasm openssl libssl-dev libudev-dev file curl jq build-essential libssl-dev git libclang-dev -y
-            sudo apt install librust-openssl-dev -y
+          sudo apt-get install gcc g++ llvm libudev-dev pkg-config file make cmake intltool musl-tools perl yasm openssl libssl-dev libudev-dev file curl jq build-essential libssl-dev git libclang-dev -y
+          sudo apt install librust-openssl-dev -y
       - name: Build binary
         run: cross build --release --target ${{ matrix.target }}
         env:
@@ -102,13 +102,13 @@ jobs:
       #        if: matrix.build == 'linux' || matrix.build == 'macos'
       #        run: strip "target/${{ matrix.target }}/release/tts-server"
       - name: LLVM Strip
-          if: matrix.os == 'ubuntu-latest'
-          continue-on-error: true
-          run: llvm-strip target/${{ matrix.target }}/release/${{ matrix.exe }}
+        if: matrix.os == 'ubuntu-latest'
+        continue-on-error: true
+        run: llvm-strip target/${{ matrix.target }}/release/${{ matrix.exe }}
       - name: MacOS Strip
-          if: matrix.os == 'macos-latest'
-          continue-on-error: true
-          run: strip target/${{ matrix.target }}/release/${{ matrix.exe }}
+        if: matrix.os == 'macos-latest'
+        continue-on-error: true
+        run: strip target/${{ matrix.target }}/release/${{ matrix.exe }}
       - name: Compress binaries
         uses: svenstaro/upx-action@v2
         with:
