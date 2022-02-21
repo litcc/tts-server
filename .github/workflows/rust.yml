@@ -6,7 +6,7 @@ on:
     branches: [ package ]
 jobs:
   build:
-    name: build for ${{ matrix.os }}
+    name: build for ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
