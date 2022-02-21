@@ -60,7 +60,7 @@ jobs:
           override: true
           target: ${{ matrix.target }}
       - name: Install dependencies
-        if: matrix.os == 'linux'
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt install musl-tools -y
       - name: Build binary
