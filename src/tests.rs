@@ -7,7 +7,6 @@ use log4rs::append::console::ConsoleAppender;
 use log4rs::config::{Appender, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::Config;
-use num::Float;
 use std::thread;
 use std::time::Duration;
 
@@ -334,7 +333,7 @@ async fn test_float_calculate() {
     debug!("test_float_calculate");
     let x: f32 = 3.14159;
 
-    let kk = num::BigInt::parse_bytes(b"2", 10);
+    let _kk = num::BigInt::parse_bytes(b"2", 10);
     let sin_x = x.sin();
     println!("sin({}) = {}", x, sin_x);
     let style = 1.6666666666666666666666666666666;

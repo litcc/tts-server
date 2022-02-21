@@ -1,19 +1,15 @@
 use crate::{info, random_string, MsTtsMsgRequest};
 use actix_web::http::StatusCode;
-use actix_web::web::{get, post};
-use actix_web::{get, web, App, HttpRequest, HttpResponse, HttpServer, Responder};
+
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use fancy_regex::Regex;
-use log::{debug, error};
+use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::sync::Arc;
-use std::time::Duration;
-use actix_web::dev::Server;
-use tokio::sync::Mutex;
-use tokio::time::timeout;
 
-use crate::ms_tts::{MsTtsConfig, MS_TTS_CONFIG};
+
+use crate::ms_tts::{MS_TTS_CONFIG};
 use urlencoding::decode as url_decode;
 
 // ##### Error Struct ############################################################################
@@ -21,7 +17,6 @@ use urlencoding::decode as url_decode;
 #[derive(Debug)]
 pub enum ControllerError {
     TextNone(String),
-    CONNECT_MS_SERVER_ERROR(String),
 }
 
 impl Display for ControllerError {
@@ -206,7 +201,6 @@ impl MsTtsMsgRequestJson {
 /// 监听
 #[actix_web::main]
 pub(crate) async fn register_service(address: String, port: String) {
-
     let web_server = HttpServer::new(|| {
         let mut app = App::new();
 
@@ -221,12 +215,15 @@ pub(crate) async fn register_service(address: String, port: String) {
     let web_server = web_server.bind(format!("{}:{}", address, port));
     match web_server {
         Ok(server) => {
-
-            info!("启动 Api 服务成功 接口地址: http://{}:{}/tts-ms", address, port);
+            if std::env::consts::OS == "windows" {
+                println!("{}", "windows");
+            } else {
+                info!("启动 Api 服务成功 接口地址: http://{}:{}/tts-ms  自行修改 ip 以及 port", address, port);
+            }
             server.workers(1).max_connections(1000).backlog(1000)
                 .run().await.unwrap();
         }
-        Err(e) => {
+        Err(_e) => {
             error!("启动 Api 服务失败，无法监听 {}:{}",address,port);
         }
     }
@@ -249,7 +246,7 @@ async fn tts_ms_get_controller(
     _req: HttpRequest,
     request: web::Query<MsTtsMsgRequestJson>,
 ) -> HttpResponse {
-    let test_id = random_string(5);
+    let _test_id = random_string(5);
     let id = random_string(32);
     let request_tmp = request.to_ms_request(id.clone());
     info!("收到 get 请求 {:?}", request_tmp);
@@ -262,6 +259,7 @@ async fn tts_ms_get_controller(
 async fn request_ms_tts(data: Result<MsTtsMsgRequest, ControllerError>) -> HttpResponse {
     match data {
         Ok(r) => {
+            let id = r.request_id.clone();
             debug!("请求微软语音服务器");
             let kk = crate::GLOBAL_EB.request("tts_ms", r.into()).await;
             debug!("请求微软语音完成");
@@ -281,17 +279,31 @@ async fn request_ms_tts(data: Result<MsTtsMsgRequest, ControllerError>) -> HttpR
                         actix_web::http::header::CONTENT_TYPE,
                         "text".parse().unwrap(),
                     );
+                    warn!("生成语音失败 {}",id);
                     respone
                 }
             }
         }
         Err(e) => {
-            let mut respone = HttpResponse::build(StatusCode::OK).body("未知错误");
-            respone.headers_mut().insert(
-                actix_web::http::header::CONTENT_TYPE,
-                "text".parse().unwrap(),
-            );
-            respone
+            match e {
+                ControllerError::TextNone(_t) => {
+                    let mut respone = HttpResponse::build(StatusCode::OK).body(crate::ms_tts::BLANK_MUSIC_FILE.to_vec());
+                    respone.headers_mut().insert(
+                        actix_web::http::header::CONTENT_TYPE,
+                        "audio/*".parse().unwrap(),
+                    );
+                    respone
+                }
+                _ => {
+                    let mut respone = HttpResponse::build(StatusCode::OK).body("未知错误");
+                    respone.headers_mut().insert(
+                        actix_web::http::header::CONTENT_TYPE,
+                        "text".parse().unwrap(),
+                    );
+                    warn!("未知错误 {:?}", e);
+                    respone
+                }
+            }
         }
     }
 }

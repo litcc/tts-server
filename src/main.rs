@@ -5,13 +5,11 @@ extern crate core;
 use crate::ms_tts::MsTtsMsgRequest;
 use crate::utils::random_string;
 use clap::{ArgEnum, Parser};
-use event_bus::core::{EventBus, EventBusOptions};
-use event_bus::message::{Body, VertxMessage};
+use event_bus::core::{EventBus};
+use event_bus::message::{VertxMessage};
 pub use log::*;
 use once_cell::sync::Lazy;
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::signal;
 
 mod controller;
 mod log_utils;
@@ -87,10 +85,6 @@ pub(crate) struct AppArgs {
     #[clap(long, value_name = "prot", default_value_t = String::from("8080"))]
     listen_port: String,
 
-    /// 是否从官方更新发音人列表
-    #[clap(long)]
-    do_not_update_speakers_list: bool,
-
     /// 显示可用发音人列表
     #[clap(long)]
     show_informant_list: bool,
@@ -98,6 +92,10 @@ pub(crate) struct AppArgs {
     /// 显示音频质量参数列表
     #[clap(long)]
     show_quality_list: bool,
+
+    /// 是否从官方更新发音人列表
+    #[clap(long)]
+    do_not_update_speakers_list: bool,
 
 }
 

@@ -11,12 +11,13 @@ use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
+use std::error::Error;
 use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 use rand::Rng;
-use tokio::io::AsyncWriteExt;
+
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
@@ -186,7 +187,7 @@ pub(crate) struct MsTtsCache {
 
 // &'static mut HashMap<String, Mutex<MsTtsCache>>
 static MS_TTS_DATA_CACHE: Lazy<Arc<HashMap<String, Mutex<MsTtsCache>>>> = Lazy::new(|| {
-    let mut kk = HashMap::new();
+    let kk = HashMap::new();
     Arc::new(kk)
 });
 
@@ -197,7 +198,7 @@ pub(crate) async fn register_service() {
     debug!("register_service");
 
     crate::GLOBAL_EB.consumer("tts_ms", |fn_msg| async move {
-        let id = random_string(5);
+        let _id = random_string(5);
         let eb_msg = fn_msg.msg.clone();
         let eb = Arc::clone(&fn_msg.eb);
         let ll = Bytes::from(eb_msg.body().await.as_bytes().expect("event_bus[ms-tts]: body is not bytes").to_vec());
@@ -320,7 +321,7 @@ pub(crate) async fn register_service() {
         {
             let jj = tx_socket.clone();
             let mut gg = jj.lock().await;
-            let mut socket = gg.as_mut();
+            let socket = gg.as_mut();
             // if socket.is_some() {
             //     let s = socket.unwrap();
             //     s.send(Message::Text(msg1)).await.unwrap();
@@ -522,49 +523,37 @@ pub struct MsTtsConfig {
 }
 
 // 空白音频
-const BLANK_MUSIC_FILE: &'static [u8] = include_bytes!("resource/blank.mp3");
+pub(crate) const BLANK_MUSIC_FILE: &'static [u8] = include_bytes!("resource/blank.mp3");
 
 // 发音人配置
-const SPEAKERS_LIST_FILE: &'static [u8] = include_bytes!("resource/voices_list.json");
+pub(crate) const SPEAKERS_LIST_FILE: &'static [u8] = include_bytes!("resource/voices_list.json");
 
 ///
-/// 获取微软文本转语音支持的发音人配置
-///
-///
-pub(crate) async fn get_ms_tts_config() -> Option<MsTtsConfig> {
-    let args: crate::AppArgs = crate::AppArgs::parse();
-
-    let config_json_text = if args.do_not_update_speakers_list {
-        String::from_utf8(SPEAKERS_LIST_FILE.to_vec()).unwrap()
-    } else {
-        let client = reqwest::Client::new();
-        trace!("开始请求token");
-        let resp = client
-            .get("https://azure.microsoft.com/zh-cn/services/cognitive-services/text-to-speech/")
-            .send()
-            .await
-            .expect("get token error");
-        let html = resp.text().await.unwrap();
-        //debug!("html内容：{}",html);
-        let token = Regex::new(r#"token: "([a-zA-Z0-9\._-]+)""#)
-            .unwrap()
-            .captures(&html)
-            .unwrap();
-        let token_str = match token {
-            Some(t) => {
-                let df = t.get(1).unwrap().as_str();
-                trace!("token获取成功：{}", df);
-                Some(df.to_owned())
-            }
-            None => None,
-        };
-        if token_str.is_none() {
-            return None;
+/// 从微软在线服务器上获取发音人列表
+pub(crate) async fn get_ms_online_config() -> Result<String, Box<dyn Error>> {
+    let client = reqwest::Client::new();
+    info!("开始从微软服务器更新发音人列表...");
+    trace!("开始请求token");
+    let resp = client
+        .get("https://azure.microsoft.com/zh-cn/services/cognitive-services/text-to-speech/")
+        .send()
+        .await?;
+    let html = resp.text().await?;
+    //debug!("html内容：{}",html);
+    let token = Regex::new(r#"token: "([a-zA-Z0-9\._-]+)""#)?
+        .captures(&html)?;
+    let token_str = match token {
+        Some(t) => {
+            let df = t.get(1).unwrap().as_str();
+            trace!("token获取成功：{}", df);
+            Some(df.to_owned())
         }
+        None => None,
+    };
+    if token_str.is_some() {
         let region = Regex::new(r#"region: "([a-z0-9]+)""#)
             .unwrap()
-            .captures(&html)
-            .unwrap();
+            .captures(&html)?;
         let region_str = match region {
             Some(r) => {
                 let df = r.get(1).unwrap().as_str();
@@ -574,7 +563,7 @@ pub(crate) async fn get_ms_tts_config() -> Option<MsTtsConfig> {
             None => None,
         };
         if region_str.is_none() {
-            return None;
+            return Err("region获取失败".into());
         }
         let mut headers = reqwest::header::HeaderMap::new();
         headers.insert(
@@ -590,19 +579,37 @@ pub(crate) async fn get_ms_tts_config() -> Option<MsTtsConfig> {
             ))
             .headers(headers)
             .send()
-            .await
-            .unwrap();
+            .await?;
         let config_respone_tmp = config_response.text().await;
         if let Ok(json_text) = config_respone_tmp {
             // tokio::fs::File::create("voices_list.json").await
             //     .unwrap().write_all(json_text.as_bytes()).await.unwrap();
-            json_text
+            info!("获取发音人列表成功");
+            return Ok(json_text);
+        }
+    }
+    Err("获取在线配置失败".into())
+}
+
+
+///
+/// 获取微软文本转语音支持的发音人配置
+///
+///
+pub(crate) async fn get_ms_tts_config() -> Option<MsTtsConfig> {
+    let args: crate::AppArgs = crate::AppArgs::parse();
+
+    let config_json_text = if args.do_not_update_speakers_list {
+        String::from_utf8(SPEAKERS_LIST_FILE.to_vec()).unwrap()
+    } else {
+        let online = get_ms_online_config().await;
+        if let Ok(co) = online {
+            co
         } else {
             warn!("从微软服务器更新发音人列表失败！改为使用本地缓存");
             String::from_utf8(SPEAKERS_LIST_FILE.to_vec()).unwrap()
         }
     };
-
 
     let tmp_list_1: Vec<VoicesItem> = serde_json::from_str(&config_json_text).unwrap();
 
@@ -645,6 +652,4 @@ pub(crate) async fn get_ms_tts_config() -> Option<MsTtsConfig> {
         voices_list: v_list,
         quality_list: quality_list_tmp,
     });
-
-    None
 }
