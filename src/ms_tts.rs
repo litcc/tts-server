@@ -186,7 +186,7 @@ pub(crate) struct MsTtsCache {
 }
 
 // &'static mut HashMap<String, Mutex<MsTtsCache>>
-static MS_TTS_DATA_CACHE: Lazy<Arc<HashMap<String, Mutex<MsTtsCache>>>> = Lazy::new(|| {
+static MS_TTS_DATA_CACHE: Lazy<Arc<HashMap<String, Arc<Mutex<MsTtsCache>>>>> = Lazy::new(|| {
     let kk = HashMap::new();
     Arc::new(kk)
 });
@@ -268,7 +268,9 @@ pub(crate) async fn register_service() {
                                                 let mut body = BytesMut::from(s.as_slice());
                                                 let index = binary_search(&s, &TAG_BODY_SPLIT).unwrap();
                                                 let mut _head = body.split_to(index + TAG_BODY_SPLIT.len());
-                                                unsafe { Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).get_mut(&id).unwrap().lock().await.data.put(body) };
+
+                                                MS_TTS_DATA_CACHE.clone().get(&id).unwrap().clone().lock().await.data.put(body);
+                                                // unsafe { Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).get_mut(&id).unwrap().lock().await.data.put(body) };
                                                 trace!("二进制响应体 ,{}",id);
                                             } else if s.starts_with(&TAG_NONE_DATA_START) {
                                                 let id = String::from_utf8(s[14..46].to_vec()).unwrap();
@@ -313,10 +315,10 @@ pub(crate) async fn register_service() {
                            request.request_id, request.informant, request.style, request.rate, request.pitch, request.text);
         // 向 websocket 发送消息
         unsafe {
-            Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).insert(request.request_id, Mutex::new(MsTtsCache {
+            Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).insert(request.request_id, Arc::new(Mutex::new(MsTtsCache {
                 data: BytesMut::new(),
                 reply: eb_msg.clone(),
-            }))
+            })))
         };
         // info!("consumer {} 7",id);
         {
