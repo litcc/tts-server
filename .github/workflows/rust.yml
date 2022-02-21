@@ -15,68 +15,61 @@ jobs:
             target: x86_64-unknown-linux-gnu
             file: tts-server
             args: --best --lzma
-            strip: true
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             file: tts-server
             args: --best --lzma
-            strip: true
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
             file: tts-server
             args: --best --lzma
-            strip: true
           - os: ubuntu-latest
             target: arm-unknown-linux-musleabi
             file: tts-server
             args: --best --lzma
-            strip: true
           - os: ubuntu-latest
             target: arm-unknown-linux-musleabihf
             file: tts-server
             args: --best --lzma
-            strip: true
           - os: ubuntu-latest
             target: armv7-unknown-linux-musleabihf
             file: tts-server
             args: --best --lzma
-            strip: true
-#          - os: ubuntu-latest
-#            target: mips-unknown-linux-gnu
-#            file: tts-server
-#            args: --best --lzma
-#            strip: true
-#          - os: ubuntu-latest
-#            target: mips-unknown-linux-musl
-#            file: tts-server
-#            args: --best --lzma
-#            strip: true
-#          - os: ubuntu-latest
-#            target: mipsel-unknown-linux-gnu
-#            file: tts-server
-#            args: --best --lzma
-#            strip: true
-#          - os: ubuntu-latest
-#            target: mipsel-unknown-linux-musl
-#            file: tts-server
-#            args: --best --lzma
-#            strip: true
-#          - os: ubuntu-latest
-#            target: mips64-unknown-linux-gnuabi64
-#            file: tts-server
-#            args: --best --lzma
-#            strip: true
-#          - os: ubuntu-latest
-#            target: mips64el-unknown-linux-gnuabi64
-#            file: tts-server
-#            args: --best --lzma
-#            strip: true
+          #          - os: ubuntu-latest
+          #            target: mips-unknown-linux-gnu
+          #            file: tts-server
+          #            args: --best --lzma
+          #            strip: true
+          #          - os: ubuntu-latest
+          #            target: mips-unknown-linux-musl
+          #            file: tts-server
+          #            args: --best --lzma
+          #            strip: true
+          #          - os: ubuntu-latest
+          #            target: mipsel-unknown-linux-gnu
+          #            file: tts-server
+          #            args: --best --lzma
+          #            strip: true
+          #          - os: ubuntu-latest
+          #            target: mipsel-unknown-linux-musl
+          #            file: tts-server
+          #            args: --best --lzma
+          #            strip: true
+          #          - os: ubuntu-latest
+          #            target: mips64-unknown-linux-gnuabi64
+          #            file: tts-server
+          #            args: --best --lzma
+          #            strip: true
+          #          - os: ubuntu-latest
+          #            target: mips64el-unknown-linux-gnuabi64
+          #            file: tts-server
+          #            args: --best --lzma
+          #            strip: true
 
           - os: macos-latest
             target: x86_64-apple-darwin
             file: tts-server
             args: --best
-            strip: true
 
           - os: windows-latest
             target: x86_64-pc-windows-msvc
@@ -96,11 +89,11 @@ jobs:
           target: ${{ matrix.target }}
       - name: Install cross
         run: cargo install cross
-#      - name: Install dependencies
-#        if: matrix.os == 'ubuntu-latest'
-#        run: |
-#          sudo apt-get install gcc g++ libudev-dev pkg-config file make cmake intltool musl-tools perl yasm openssl libssl-dev libudev-dev file curl jq build-essential libssl-dev git libclang-dev -y
-#          sudo apt install librust-openssl-dev -y
+            - name: Install dependencies
+              if: matrix.os == 'ubuntu-latest'
+              run: |
+                sudo apt-get install gcc g++ llvm libudev-dev pkg-config file make cmake intltool musl-tools perl yasm openssl libssl-dev libudev-dev file curl jq build-essential libssl-dev git libclang-dev -y
+                sudo apt install librust-openssl-dev -y
       - name: Build binary
         run: cross build --release --target ${{ matrix.target }}
         env:
@@ -108,12 +101,20 @@ jobs:
       #      - name: Strip binary (linux and macos)
       #        if: matrix.build == 'linux' || matrix.build == 'macos'
       #        run: strip "target/${{ matrix.target }}/release/tts-server"
+      - name: LLVM Strip
+          if: matrix.os == 'ubuntu-latest'
+          continue-on-error: true
+          run: llvm-strip target/${{ matrix.target }}/release/${{ matrix.exe }}
+      - name: MacOS Strip
+          if: matrix.os == 'macos-latest'
+          continue-on-error: true
+          run: strip target/${{ matrix.target }}/release/${{ matrix.exe }}
       - name: Compress binaries
         uses: svenstaro/upx-action@v2
         with:
           file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
           args: ${{ matrix.args }}
-          strip: ${{ matrix.strip }}
+          strip: false
       #          file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
       - name: Upload archive
         uses: actions/upload-artifact@v1
