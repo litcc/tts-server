@@ -4,6 +4,9 @@ on:
     branches: [ package ]
   pull_request:
     branches: [ package ]
+  #push:
+  #    tags:
+  #      - '*'
 jobs:
   build:
     name: build for ${{ matrix.target }}
@@ -15,62 +18,50 @@ jobs:
             target: x86_64-unknown-linux-gnu
             file: tts-server
             args: --best --lzma
-            strip: true
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             file: tts-server
             args: --best --lzma
-            strip: true
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
             file: tts-server
             args: --best --lzma
-            strip: false
           - os: ubuntu-latest
             target: arm-unknown-linux-musleabi
             file: tts-server
             args: --best --lzma
-            strip: false
           - os: ubuntu-latest
             target: arm-unknown-linux-musleabihf
             file: tts-server
             args: --best --lzma
-            strip: false
           - os: ubuntu-latest
             target: armv7-unknown-linux-musleabihf
             file: tts-server
             args: --best --lzma
-            strip: false
           - os: ubuntu-latest
             target: mips-unknown-linux-gnu
             file: tts-server
             args: --best --lzma
-            strip: false
           - os: ubuntu-latest
             target: mips-unknown-linux-musl
             file: tts-server
             args: --best --lzma
-            strip: false
           - os: ubuntu-latest
             target: mipsel-unknown-linux-gnu
             file: tts-server
             args: --best --lzma
-            strip: false
           - os: ubuntu-latest
             target: mipsel-unknown-linux-musl
             file: tts-server
             args: --best --lzma
-            strip: false
           - os: ubuntu-latest
             target: mips64-unknown-linux-gnuabi64
             file: tts-server
             args: --best --lzma
-            strip: false
           - os: ubuntu-latest
             target: mips64el-unknown-linux-gnuabi64
             file: tts-server
             args: --best --lzma
-            strip: false
 
           - os: macos-latest
             target: x86_64-apple-darwin
@@ -82,7 +73,7 @@ jobs:
             target: x86_64-pc-windows-msvc
             file: tts-server.exe
             args: -9
-            strip: false
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
@@ -116,15 +107,16 @@ jobs:
         if: matrix.os == 'macos-latest'
         continue-on-error: true
         run: strip target/${{ matrix.target }}/release/${{ matrix.file }}
-#      - name: Compress binaries
-#        uses: svenstaro/upx-action@v2
-#        with:
-#          file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
-#          args: ${{ matrix.args }}
-#          strip: ${{ matrix.strip }}
+      - name: Compress binaries
+#        if: !contains(matrix.target,'mips')
+        uses: svenstaro/upx-action@v2
+        with:
+          file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
+          args: ${{ matrix.args }}
+          strip: false
       #          file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
       - name: Upload archive
         uses: actions/upload-artifact@v1
         with:
-          name: tts-server-${{ matrix.target }}.zip
+          name: tts-server-${{ matrix.target }}
           path: "target/${{ matrix.target }}/release/${{ matrix.file }}"
