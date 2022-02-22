@@ -25,12 +25,12 @@ jobs:
             target: aarch64-unknown-linux-musl
             file: tts-server
             args: --best --lzma
-            strip: true
+            strip: false
           - os: ubuntu-latest
             target: arm-unknown-linux-musleabi
             file: tts-server
             args: --best --lzma
-            strip: true
+            strip: false
           - os: ubuntu-latest
             target: arm-unknown-linux-musleabihf
             file: tts-server
