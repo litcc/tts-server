@@ -35,12 +35,12 @@ jobs:
             target: arm-unknown-linux-musleabihf
             file: tts-server
             args: --best --lzma
-            strip: true
+            strip: false
           - os: ubuntu-latest
             target: armv7-unknown-linux-musleabihf
             file: tts-server
             args: --best --lzma
-            strip: true
+            strip: false
           #          - os: ubuntu-latest
           #            target: mips-unknown-linux-gnu
           #            file: tts-server
