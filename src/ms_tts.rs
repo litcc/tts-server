@@ -10,7 +10,6 @@ use log::{debug, info, trace, warn};
 use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::convert::TryFrom;
 use std::error::Error;
 use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -21,15 +20,19 @@ use rand::Rng;
 use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
-use tokio_rustls::client::TlsStream;
-use tokio_rustls::TlsConnector;
+use tokio_native_tls::{native_tls, TlsStream};
+use tokio_native_tls::TlsConnector;
+// use tokio_rustls::client::TlsStream;
+// use tokio_rustls::TlsConnector;
+// use tokio_native_tls
+
 use tokio_tungstenite::tungstenite::handshake::client::Request;
 use tokio_tungstenite::tungstenite::http::{Method, Uri, Version};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{client_async_with_config, WebSocketStream};
 
-use crate::utils::{binary_search, get_system_ca_config, random_string};
+use crate::utils::{binary_search, random_string}; // get_system_ca_config
 
 // "Path:audio\r\n"
 pub(crate) static TAG_BODY_SPLIT: [u8; 12] = [80, 97, 116, 104, 58, 97, 117, 100, 105, 111, 13, 10];
@@ -415,14 +418,17 @@ pub(crate) async fn new_websocket_by_select_server(
     }
     let request = request.unwrap();
 
-    let config = get_system_ca_config();
-    let config = TlsConnector::from(Arc::new(config));
-    let domain = tokio_rustls::rustls::ServerName::try_from("speech.platform.bing.com");
+    // let config = get_system_ca_config();
+    // let config = TlsConnector::from(Arc::new(config));
+    // let domain = ServerName::try_from("speech.platform.bing.com");
 
-    if let Err(e) = domain {
-        return Err(format!("dns解析错误 speech.platform.bing.com {:?}", e));
-    }
-    let domain = domain.unwrap();
+    // if let Err(e) = domain {
+    //     return Err(format!("dns解析错误 speech.platform.bing.com {:?}", e));
+    // }
+    // let domain = domain.unwrap();
+    let domain = "speech.platform.bing.com";
+
+    let config = tokio_native_tls::TlsConnector::from(native_tls::TlsConnector::new().unwrap());
 
 
     let sock = match server {
@@ -446,6 +452,8 @@ pub(crate) async fn new_websocket_by_select_server(
             TcpStream::connect("speech.platform.bing.com:443").await
         }
     };
+
+
 
     if let Err(e) = sock {
         return Err(format!(

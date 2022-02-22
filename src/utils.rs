@@ -1,6 +1,6 @@
 use rand::Rng;
-use rustls_native_certs::load_native_certs;
-use tokio_rustls::rustls::{Certificate, ClientConfig, RootCertStore};
+// use rustls_native_certs::load_native_certs;
+// use tokio_rustls::rustls::{Certificate, ClientConfig, RootCertStore};
 
 /// 生成随机字符
 ///
@@ -24,17 +24,20 @@ pub fn random_string(num: u32) -> String {
 
 /// 获取系统跟证书
 ///
-pub fn get_system_ca_config() -> ClientConfig {
-    let mut root_store = RootCertStore::empty();
-    for cert in load_native_certs().expect("could not load platform certs") {
-        root_store.add(&Certificate(cert.0)).unwrap();
-    }
-    let config = ClientConfig::builder()
-        .with_safe_defaults()
-        .with_root_certificates(root_store)
-        .with_no_client_auth();
-    return config;
-}
+// pub fn get_system_ca_config() -> ClientConfig {
+//     let mut root_store = RootCertStore::empty();
+//     for cert in load_native_certs().expect("could not load platform certs") {
+//         root_store.add(&Certificate(cert.0)).unwrap();
+//     }
+//     let config = ClientConfig::builder()
+//         .with_safe_defaults()
+//         .with_root_certificates(root_store)
+//         .with_no_client_auth();
+//     return config;
+// }
+
+///
+
 
 // 二进制数组查询
 pub fn binary_search(bin: &[u8], search: &[u8]) -> Option<usize> {
