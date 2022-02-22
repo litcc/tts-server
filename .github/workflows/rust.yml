@@ -18,61 +18,73 @@ jobs:
             target: x86_64-unknown-linux-gnu
             file: tts-server
             args: --best --lzma
+            use_upx: true
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             file: tts-server
             args: --best --lzma
+            use_upx: true
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
             file: tts-server
             args: --best --lzma
+            use_upx: true
           - os: ubuntu-latest
             target: arm-unknown-linux-musleabi
             file: tts-server
             args: --best --lzma
+            use_upx: true
           - os: ubuntu-latest
             target: arm-unknown-linux-musleabihf
             file: tts-server
             args: --best --lzma
+            use_upx: true
           - os: ubuntu-latest
             target: armv7-unknown-linux-musleabihf
             file: tts-server
             args: --best --lzma
+            use_upx: true
           - os: ubuntu-latest
             target: mips-unknown-linux-gnu
             file: tts-server
             args: --best --lzma
+            use_upx: true
           - os: ubuntu-latest
             target: mips-unknown-linux-musl
             file: tts-server
             args: --best --lzma
+            use_upx: true
           - os: ubuntu-latest
             target: mipsel-unknown-linux-gnu
             file: tts-server
             args: --best --lzma
+            use_upx: true
           - os: ubuntu-latest
             target: mipsel-unknown-linux-musl
             file: tts-server
             args: --best --lzma
+            use_upx: true
           - os: ubuntu-latest
             target: mips64-unknown-linux-gnuabi64
             file: tts-server
             args: --best --lzma
+            use_upx: false
           - os: ubuntu-latest
             target: mips64el-unknown-linux-gnuabi64
             file: tts-server
             args: --best --lzma
-
+            use_upx: false
           - os: macos-latest
             target: x86_64-apple-darwin
             file: tts-server
             args: --best
-            strip: true
+            use_upx: true
 
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             file: tts-server.exe
             args: -9
+            use_upx: true
 
     steps:
       - name: Checkout repository
@@ -108,7 +120,7 @@ jobs:
         run: strip target/${{ matrix.target }}/release/${{ matrix.file }}
       - name: Compress binaries
         uses: svenstaro/upx-action@v2
-        if: matrix.target != "mips64-unknown-linux-gnuabi64" && matrix.target != "mips64el-unknown-linux-gnuabi64"
+        if: matrix.use_upx
         with:
           file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
           args: ${{ matrix.args }}
