@@ -111,11 +111,11 @@ jobs:
       - name: LLVM Strip
         if: matrix.os == 'ubuntu-latest'
         continue-on-error: true
-        run: llvm-strip target/${{ matrix.target }}/release/${{ matrix.exe }}
+        run: llvm-strip target/${{ matrix.target }}/release/${{ matrix.file }}
       - name: MacOS Strip
         if: matrix.os == 'macos-latest'
         continue-on-error: true
-        run: strip target/${{ matrix.target }}/release/${{ matrix.exe }}
+        run: strip target/${{ matrix.target }}/release/${{ matrix.file }}
 #      - name: Compress binaries
 #        uses: svenstaro/upx-action@v2
 #        with:
