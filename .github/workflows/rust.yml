@@ -1,12 +1,8 @@
 name: build
 on:
   push:
-    branches: [ package ]
-  pull_request:
-    branches: [ package ]
-  #push:
-  #    tags:
-  #      - '*'
+    tags:
+      - '*'
 jobs:
   build:
     name: build for ${{ matrix.target }}
