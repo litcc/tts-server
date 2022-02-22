@@ -107,7 +107,7 @@ jobs:
         continue-on-error: true
         run: strip target/${{ matrix.target }}/release/${{ matrix.file }}
       - name: Compress binaries
-        if: !contains(matrix.target,'mips64el') && !contains(matrix.target,'mips64')
+        if: !contains(matrix.target,'mips64')
         uses: svenstaro/upx-action@v2
         with:
           file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
