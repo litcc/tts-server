@@ -90,8 +90,7 @@ jobs:
       - name: Install dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
-          sudo apt-get install gcc g++ llvm libudev-dev pkg-config file make cmake intltool musl-tools perl yasm openssl libssl-dev libudev-dev file curl jq build-essential libssl-dev git libclang-dev -y
-          sudo apt install librust-openssl-dev -y
+          sudo apt-get install llvm -y
       - name: Build binary
         run: cross build --release --target ${{ matrix.target }}
         env:
