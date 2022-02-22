@@ -107,8 +107,8 @@ jobs:
         continue-on-error: true
         run: strip target/${{ matrix.target }}/release/${{ matrix.file }}
       - name: Compress binaries
-        if: !contains(matrix.target,'mips64')
         uses: svenstaro/upx-action@v2
+        if: matrix.target != "mips64-unknown-linux-gnuabi64" && matrix.target != "mips64el-unknown-linux-gnuabi64"
         with:
           file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
           args: ${{ matrix.args }}
