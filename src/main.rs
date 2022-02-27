@@ -43,7 +43,7 @@ pub mod utils;
                         "informant": "zh-CN-XiaoxiaoNeural",
                         "style": "general",
                         "rate": {{ speakSpeed / 15 }},
-                        "text": "{{java.encodeURI(speakText)}}"
+                        "text": "{{java.encodeURI(speakText).replace('+','%20')}}"
                     }
                 }
 "##)]
