@@ -93,9 +93,21 @@ pub(crate) struct AppArgs {
     #[clap(long)]
     show_quality_list: bool,
 
-    /// 是否从官方更新发音人列表
+    /// 指定不从官方更新最新发音人 (可以快速使用本地缓存启动程序)
     #[clap(long)]
     do_not_update_speakers_list: bool,
+
+    /// 是否开启 debug 日志
+    #[clap(long)]
+    debug: bool,
+
+    /// 将日志记录至文件
+    #[clap(long)]
+    log_to_file: bool,
+
+    /// 日志文件路径
+    #[clap(long,default_value_t = format!("{}/local_ocr/ocr.log", std::env::temp_dir().to_str().unwrap()))]
+    log_path: String,
 
 }
 

@@ -21,7 +21,7 @@ use tokio::net::TcpStream;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tokio_native_tls::{native_tls, TlsStream};
-use tokio_native_tls::TlsConnector;
+
 // use tokio_rustls::client::TlsStream;
 // use tokio_rustls::TlsConnector;
 // use tokio_native_tls
@@ -158,8 +158,8 @@ impl MsTtsMsgRequest {
     }
 
     #[inline]
-    pub fn from_bytes(bytes: Bytes) -> MsTtsMsgRequest {
-        let data: MsTtsMsgRequest = bincode::deserialize(&bytes[..]).unwrap();
+    pub fn from_bytes(bytes: Bytes) -> Self {
+        let data: Self = bincode::deserialize(&bytes[..]).unwrap();
         data
     }
 }
@@ -178,6 +178,40 @@ impl Into<event_bus::message::Body> for MsTtsMsgRequest {
     }
 }
 
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct MsTtsMsgResponse {
+    pub request_id: String,
+    pub data: Vec<u8>,
+    pub file_type: String,
+}
+
+impl MsTtsMsgResponse {
+    #[inline]
+    pub fn to_bytes(&self) -> Bytes {
+        Bytes::from(bincode::serialize(self).unwrap())
+    }
+
+
+    #[inline]
+    pub fn from_bytes(bytes: Bytes) -> Self {
+        let data: Self = bincode::deserialize(&bytes[..]).unwrap();
+        data
+    }
+
+    #[inline]
+    pub fn to_vec(&self) -> Vec<u8> {
+        Bytes::from(bincode::serialize(self).unwrap()).to_vec()
+    }
+
+    #[inline]
+    pub fn from_vec(bytes: Vec<u8>) -> Self {
+        let data: Self = bincode::deserialize(&bytes[..]).unwrap();
+        data
+    }
+}
+
+
 type WebsocketRt = SplitSink<WebSocketStream<TlsStream<TcpStream>>, Message>;
 
 static SOCKET_TX: OnceCell<Arc<Mutex<Option<WebsocketRt>>>> = OnceCell::new();
@@ -186,6 +220,7 @@ static SOCKET_TX: OnceCell<Arc<Mutex<Option<WebsocketRt>>>> = OnceCell::new();
 pub(crate) struct MsTtsCache {
     pub(crate) data: BytesMut,
     pub(crate) reply: IMessage,
+    pub(crate) file_type: Option<String>,
 }
 
 // &'static mut HashMap<String, Mutex<MsTtsCache>>
@@ -255,7 +290,13 @@ pub(crate) async fn register_service() {
                                                 if let Some(data) = data {
                                                     debug!("结束请求: {}",id);
                                                     let data = data.lock().await;
-                                                    data.reply.reply(data.data.to_vec().into()).await;
+
+                                                    let body = MsTtsMsgResponse {
+                                                        request_id: id,
+                                                        data: data.data.to_vec().clone(),
+                                                        file_type: data.file_type.as_ref().unwrap().to_string(),
+                                                    };
+                                                    data.reply.reply(body.to_vec().into()).await;
                                                     // eb_msg.reply(data.to_vec().into()).await;
                                                 } else {
                                                     trace!("响应 不存在回复");
@@ -270,9 +311,19 @@ pub(crate) async fn register_service() {
                                                 let id = String::from_utf8(s[14..46].to_vec()).unwrap();
                                                 let mut body = BytesMut::from(s.as_slice());
                                                 let index = binary_search(&s, &TAG_BODY_SPLIT).unwrap();
-                                                let mut _head = body.split_to(index + TAG_BODY_SPLIT.len());
-
-                                                MS_TTS_DATA_CACHE.clone().get(&id).unwrap().clone().lock().await.data.put(body);
+                                                let head = body.split_to(index + TAG_BODY_SPLIT.len());
+                                                let cache = MS_TTS_DATA_CACHE.clone().get(&id).unwrap().clone();
+                                                let mut cache_map = cache.lock().await;
+                                                cache_map.data.put(body);
+                                                if cache_map.file_type.is_none() {
+                                                    let head = String::from_utf8(head.to_vec()[2..head.len()].to_vec()).unwrap();
+                                                    let head_list = head.split("\r\n").collect::<Vec<&str>>();
+                                                    let content_type = head_list[1].to_string().split(":").collect::<Vec<&str>>()[1].to_string();
+                                                    trace!("content_type: {}", content_type);
+                                                    cache_map.file_type = Some(content_type);
+                                                }
+                                                drop(cache_map);
+                                                drop(cache);
                                                 // unsafe { Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).get_mut(&id).unwrap().lock().await.data.put(body) };
                                                 trace!("二进制响应体 ,{}",id);
                                             } else if s.starts_with(&TAG_NONE_DATA_START) {
@@ -321,6 +372,7 @@ pub(crate) async fn register_service() {
             Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).insert(request.request_id, Arc::new(Mutex::new(MsTtsCache {
                 data: BytesMut::new(),
                 reply: eb_msg.clone(),
+                file_type: None,
             })))
         };
         // info!("consumer {} 7",id);
@@ -448,11 +500,10 @@ pub(crate) async fn new_websocket_by_select_server(
                 .await
         }
         None => {
-            info!("连接至官方服务器");
+            info!("连接至 speech.platform.bing.com");
             TcpStream::connect("speech.platform.bing.com:443").await
         }
     };
-
 
 
     if let Err(e) = sock {

@@ -41,6 +41,9 @@ fn test_get_ms_tts_token() {
         54, 65, 53, 65, 65, 49, 68, 52, 69, 65, 70, 70, 52, 69, 57, 70, 66, 51, 55, 69, 50, 51, 68,
         54, 56, 52, 57, 49, 68, 54, 70, 52,
     ];
+
+    let _kk = "\r\nX-StreamId:";
+    let _kk = "\r\nX-StreamId:";
     info!("{}", String::from_utf8(token.to_vec()).unwrap())
 }
 

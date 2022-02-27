@@ -9,7 +9,7 @@ use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 
 
-use crate::ms_tts::{MS_TTS_CONFIG};
+use crate::ms_tts::{MS_TTS_CONFIG, MsTtsMsgResponse};
 use urlencoding::decode as url_decode;
 
 // ##### Error Struct ############################################################################
@@ -234,9 +234,9 @@ async fn tts_ms_post_controller(
     body: web::Json<MsTtsMsgRequestJson>,
 ) -> HttpResponse {
     let id = random_string(32);
-    // let (tx, mut rx) = tokio::sync::oneshot::channel();
+    debug!("收到 post 请求{:?}",body);
     let request_tmp = body.to_ms_request(id.clone());
-    info!("收到post请求 {:?}", request_tmp);
+    info!("解析 post 请求 {:?}", request_tmp);
     let re = request_ms_tts(request_tmp).await;
     debug!("响应 post 请求 {}", &id);
     return re;
@@ -246,10 +246,10 @@ async fn tts_ms_get_controller(
     _req: HttpRequest,
     request: web::Query<MsTtsMsgRequestJson>,
 ) -> HttpResponse {
-    let _test_id = random_string(5);
     let id = random_string(32);
+    debug!("收到 get 请求{:?}",request);
     let request_tmp = request.to_ms_request(id.clone());
-    info!("收到 get 请求 {:?}", request_tmp);
+    info!("解析 get 请求 {:?}", request_tmp);
     let re = request_ms_tts(request_tmp).await;
     debug!("响应 get 请求 {}", &id);
     return re;
@@ -260,16 +260,19 @@ async fn request_ms_tts(data: Result<MsTtsMsgRequest, ControllerError>) -> HttpR
     match data {
         Ok(r) => {
             let id = r.request_id.clone();
-            debug!("请求微软语音服务器");
+            // debug!("请求微软语音服务器");
             let kk = crate::GLOBAL_EB.request("tts_ms", r.into()).await;
-            debug!("请求微软语音完成");
+            // debug!("请求微软语音完成");
             match kk {
                 Some(data) => {
+
+                    let data = MsTtsMsgResponse::from_vec(data.as_bytes().unwrap().to_vec());
+
                     let mut respone =
-                        HttpResponse::build(StatusCode::OK).body(data.as_bytes().unwrap().to_vec());
+                        HttpResponse::build(StatusCode::OK).body(data.data);
                     respone.headers_mut().insert(
                         actix_web::http::header::CONTENT_TYPE,
-                        "audio/*".parse().unwrap(),
+                        data.file_type.parse().unwrap(),
                     );
                     respone
                 }
@@ -290,19 +293,19 @@ async fn request_ms_tts(data: Result<MsTtsMsgRequest, ControllerError>) -> HttpR
                     let mut respone = HttpResponse::build(StatusCode::OK).body(crate::ms_tts::BLANK_MUSIC_FILE.to_vec());
                     respone.headers_mut().insert(
                         actix_web::http::header::CONTENT_TYPE,
-                        "audio/*".parse().unwrap(),
+                        "audio/mpeg".parse().unwrap(),
                     );
                     respone
                 }
-                _ => {
-                    let mut respone = HttpResponse::build(StatusCode::OK).body("未知错误");
-                    respone.headers_mut().insert(
-                        actix_web::http::header::CONTENT_TYPE,
-                        "text".parse().unwrap(),
-                    );
-                    warn!("未知错误 {:?}", e);
-                    respone
-                }
+                // _ => {
+                //     let mut respone = HttpResponse::build(StatusCode::OK).body("未知错误");
+                //     respone.headers_mut().insert(
+                //         actix_web::http::header::CONTENT_TYPE,
+                //         "text".parse().unwrap(),
+                //     );
+                //     warn!("未知错误 {:?}", e);
+                //     respone
+                // }
             }
         }
     }
