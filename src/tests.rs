@@ -72,6 +72,7 @@ async fn test_ms_server_connectivity_cn() {
     for i in crate::ms_tts::MS_TTS_SERVER_CHINA_LIST {
         info!("[{}]", i);
         let kk = crate::ms_tts::new_websocket_by_select_server(Some(i)).await;
+        error!("{:?}", kk);
         assert!(kk.is_ok());
     }
 

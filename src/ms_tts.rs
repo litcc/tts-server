@@ -220,9 +220,9 @@ pub(crate) struct MsTtsCache {
 }
 
 // &'static mut HashMap<String, Mutex<MsTtsCache>>
-static MS_TTS_DATA_CACHE: Lazy<Arc<HashMap<String, Arc<Mutex<MsTtsCache>>>>> = Lazy::new(|| {
+static MS_TTS_DATA_CACHE: Lazy<Arc<Mutex<HashMap<String, Arc<Mutex<MsTtsCache>>>>>> = Lazy::new(|| {
     let kk = HashMap::new();
-    Arc::new(kk)
+    Arc::new(Mutex::new(kk))
 });
 
 static MS_TTS_GET_NEW: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
@@ -282,7 +282,7 @@ pub(crate) async fn register_service() {
                                                 // MS_TTS_DATA_CACHE.lock().await.insert(id, BytesMut::new());
                                             } else if let Some(_i) = s.find("Path:turn.end") {
                                                 trace!("响应 {}， 结束", id);
-                                                let data = unsafe { Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).remove(&id) };
+                                                let data = { MS_TTS_DATA_CACHE.clone().lock().await.remove(&id) };
                                                 if let Some(data) = data {
                                                     debug!("结束请求: {}",id);
                                                     let data = data.lock().await;
@@ -308,7 +308,7 @@ pub(crate) async fn register_service() {
                                                 let mut body = BytesMut::from(s.as_slice());
                                                 let index = binary_search(&s, &TAG_BODY_SPLIT).unwrap();
                                                 let head = body.split_to(index + TAG_BODY_SPLIT.len());
-                                                let cache = MS_TTS_DATA_CACHE.clone().get(&id).unwrap().clone();
+                                                let cache = { MS_TTS_DATA_CACHE.clone().lock().await.get(&id).unwrap().clone() };
                                                 let mut cache_map = cache.lock().await;
                                                 cache_map.data.put(body);
                                                 if cache_map.file_type.is_none() {
@@ -365,13 +365,20 @@ pub(crate) async fn register_service() {
         let msg2 = format!("Path:ssml\r\nX-RequestId:{}\r\nContent-Type:application/ssml+xml\r\n\r\n<speak xmlns=\"http://www.w3.org/2001/10/synthesis\" xmlns:mstts=\"http://www.w3.org/2001/mstts\" xmlns:emo=\"http://www.w3.org/2009/10/emotionml\" version=\"1.0\" xml:lang=\"zh-CN\"><voice name=\"{}\"><s /><mstts:express-as style=\"{}\"><prosody rate=\"{}%\" pitch=\"{}%\">{}</prosody></mstts:express-as><s /></voice></speak>",
                            request.request_id, request.informant, request.style, request.rate, request.pitch, request.text);
         // 向 websocket 发送消息
-        unsafe {
-            Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).insert(request.request_id, Arc::new(Mutex::new(MsTtsCache {
-                data: BytesMut::new(),
-                reply: eb_msg.clone(),
-                file_type: None,
-            })))
-        };
+
+
+        MS_TTS_DATA_CACHE.clone().lock().await.insert(request.request_id, Arc::new(Mutex::new(MsTtsCache {
+            data: BytesMut::new(),
+            reply: eb_msg.clone(),
+            file_type: None,
+        })));
+        // unsafe {
+        //     Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).insert(request.request_id, Arc::new(Mutex::new(MsTtsCache {
+        //         data: BytesMut::new(),
+        //         reply: eb_msg.clone(),
+        //         file_type: None,
+        //     })))
+        // };
         // info!("consumer {} 7",id);
         {
             let jj = tx_socket.clone();
@@ -477,7 +484,9 @@ pub(crate) async fn new_websocket_by_select_server(
     // let domain = domain.unwrap();
     let domain = "speech.platform.bing.com";
 
-    let jj = native_tls::TlsConnector::new().unwrap();
+    // let jj = native_tls::TlsConnector::new().unwrap();
+    let jj = native_tls::TlsConnector::builder().use_sni(false).build().unwrap();
+
     let config = tokio_native_tls::TlsConnector::from(jj);
 
 
@@ -515,7 +524,7 @@ pub(crate) async fn new_websocket_by_select_server(
     let tsl_stream = config.connect(domain, sock).await;
 
     if let Err(e) = tsl_stream {
-        error!("{:?}", e);
+        error!("{:?}", e );
         return Err(format!("tsl握手失败! {}", e));
     }
     let tsl_stream = tsl_stream.unwrap();
@@ -568,8 +577,6 @@ pub struct VoicesItem {
     #[serde(rename = "RolePlayList", skip_serializing_if = "Option::is_none")]
     pub role_play_list: Option<Vec<String>>,
 }
-
-
 
 
 #[derive(Debug)]

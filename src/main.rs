@@ -1,5 +1,3 @@
-#![feature(get_mut_unchecked)]
-
 extern crate core;
 
 use crate::ms_tts::MsTtsMsgRequest;

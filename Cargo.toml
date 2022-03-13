@@ -29,7 +29,8 @@ actix-web = "4.0.1"
 actix-rt = "2.7.0"
 local_ipaddress = "0.1.3"  # 获取本地ip
 tokio-native-tls = "0.3.0"
-tokio-tungstenite = { version = "0.17.1", features = ["native-tls"] }
+## tokio-tungstenite 暂时不能升级，可能是库有问题了，或者是我用法出问题了，暂时没有分析
+tokio-tungstenite = { version = "0.16.1", features = ["native-tls"] }
 tokio = { version = "1.17.0", features = ["full"] } # 协程库
 event_bus = { git = "https://github.com/litcc/event_bus.git" }
 
