@@ -28,7 +28,7 @@ fn init_log() {
         //     .appender("file")
         //     .additive(true)
         //     .build("app", LevelFilter::Info))
-        .build(Root::builder().appender("stdout").build(LevelFilter::Debug))
+        .build(Root::builder().appender("stdout").build(LevelFilter::Trace))
         .unwrap();
 
     log4rs::init_config(config).unwrap();

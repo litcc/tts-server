@@ -125,10 +125,10 @@ pub(crate) static GLOBAL_EB: Lazy<Arc<EventBus<VertxMessage>>> = Lazy::new(|| {
     Arc::new(eb)
 });
 
-// #[tokio::main]
+#[tokio::main]
 // async
-fn main() {
-    let runtime = tokio::runtime::Runtime::new().unwrap();
+async fn main() {
+    // let runtime = tokio::runtime::Runtime::new().unwrap();
 
     log_utils::init_log();
     let args: AppArgs = AppArgs::parse();
@@ -139,21 +139,22 @@ fn main() {
     }
 
     if args.show_informant_list {
-
-        ms_tts::MS_TTS_CONFIG.get_or_init(|| runtime.block_on(async  {
+        ms_tts::MS_TTS_CONFIG.get_or_init(|| async  {
             ms_tts::get_ms_tts_config().await.unwrap()
-        }));
+        }).await;
         println!("当前可使用的发音人参数有: \n{:?}", ms_tts::MS_TTS_CONFIG.get().unwrap().voices_list.voices_name_list);
         std::process::exit(0);
     }
 
     info!("准备启动，程序参数: {:?}", args);
-    runtime.block_on(async move {
-        GLOBAL_EB.start().await;
-        ms_tts::register_service().await;
-        controller::register_service(args.listen_address.clone(), args.listen_port.clone());
-        info!("谢谢使用，希望能收到您对软件的看法和建议！");
-        std::process::exit(0);
-    });
+    GLOBAL_EB.start().await;
+    ms_tts::register_service().await;
+    controller::register_service(args.listen_address.clone(), args.listen_port.clone()).await;
+    info!("谢谢使用，希望能收到您对软件的看法和建议！");
+    std::process::exit(0);
+
+    // runtime.block_on(async move {
+    //
+    // });
 
 }

@@ -6,8 +6,8 @@ use fancy_regex::Regex;
 use futures_util::stream::SplitSink;
 use futures_util::{SinkExt, StreamExt};
 use itertools::Itertools;
-use log::{debug, info, trace, warn};
-use once_cell::sync::{Lazy, OnceCell};
+use log::{debug, error, info, trace, warn};
+use once_cell::sync::{Lazy};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -18,13 +18,9 @@ use std::time::Duration;
 use rand::Rng;
 
 use tokio::net::TcpStream;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, OnceCell};
 use tokio::time::sleep;
 use tokio_native_tls::{native_tls, TlsStream};
-
-// use tokio_rustls::client::TlsStream;
-// use tokio_rustls::TlsConnector;
-// use tokio_native_tls
 
 use tokio_tungstenite::tungstenite::handshake::client::Request;
 use tokio_tungstenite::tungstenite::http::{Method, Uri, Version};
@@ -41,7 +37,7 @@ pub(crate) static TAG_SOME_DATA_START: [u8; 2] = [0, 128];
 // gX-R
 pub(crate) static TAG_NONE_DATA_START: [u8; 2] = [0, 103];
 
-pub(crate) static MS_TTS_CONFIG: OnceCell<MsTtsConfig> = OnceCell::new();
+pub(crate) static MS_TTS_CONFIG: OnceCell<MsTtsConfig> = OnceCell::const_new();
 
 pub(crate) static MS_TTS_SERVER_CHINA_LIST: [&str; 7] = [
     // 北京节点
@@ -214,7 +210,7 @@ impl MsTtsMsgResponse {
 
 type WebsocketRt = SplitSink<WebSocketStream<TlsStream<TcpStream>>, Message>;
 
-static SOCKET_TX: OnceCell<Arc<Mutex<Option<WebsocketRt>>>> = OnceCell::new();
+static SOCKET_TX: OnceCell<Arc<Mutex<Option<WebsocketRt>>>> = OnceCell::const_new();
 
 
 pub(crate) struct MsTtsCache {
@@ -241,9 +237,9 @@ pub(crate) async fn register_service() {
         let eb = Arc::clone(&fn_msg.eb);
         let ll = Bytes::from(eb_msg.body().await.as_bytes().expect("event_bus[ms-tts]: body is not bytes").to_vec());
         let request = MsTtsMsgRequest::from_bytes(ll);
-        let tx_socket = Arc::clone(SOCKET_TX.get_or_init(|| {
+        let tx_socket = Arc::clone(SOCKET_TX.get_or_init(|| async {
             Arc::new(Mutex::new(None))
-        }));
+        }).await);
 
         if !MS_TTS_GET_NEW.load(Ordering::Relaxed) && !tx_socket.clone().lock().await.is_some() {
             MS_TTS_GET_NEW.store(true, Ordering::Release);
@@ -333,6 +329,7 @@ pub(crate) async fn register_service() {
                                                 trace!("其他二进制类型: {} ", unsafe { String::from_utf8_unchecked(s.to_vec()) });
                                             }
                                         }
+                                        _ => {}
                                     }
                                 }
                                 Err(e) => {
@@ -394,7 +391,7 @@ pub(crate) async fn register_service() {
 
     let kk_s = get_ms_tts_config().await.unwrap();
 
-    MS_TTS_CONFIG.get_or_init(move || kk_s);
+    MS_TTS_CONFIG.get_or_init(move || async { kk_s }).await;
 }
 
 static MS_TTS_TOKEN: Lazy<String> = Lazy::new(|| {
@@ -461,7 +458,7 @@ pub(crate) async fn new_websocket_by_select_server(
         .header("Accept", "*/*")
         .header("Accept-Encoding", "gzip, deflate, br")
         .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6")
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36 Edg/90.0.818.62")
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4884.0 Safari/537.36 Edg/100.0.1181.0")
         .header("Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold")
         .version(Version::HTTP_11);
     let request = request_builder.body(());
@@ -480,7 +477,8 @@ pub(crate) async fn new_websocket_by_select_server(
     // let domain = domain.unwrap();
     let domain = "speech.platform.bing.com";
 
-    let config = tokio_native_tls::TlsConnector::from(native_tls::TlsConnector::new().unwrap());
+    let jj = native_tls::TlsConnector::new().unwrap();
+    let config = tokio_native_tls::TlsConnector::from(jj);
 
 
     let sock = match server {
@@ -517,6 +515,7 @@ pub(crate) async fn new_websocket_by_select_server(
     let tsl_stream = config.connect(domain, sock).await;
 
     if let Err(e) = tsl_stream {
+        error!("{:?}", e);
         return Err(format!("tsl握手失败! {}", e));
     }
     let tsl_stream = tsl_stream.unwrap();
@@ -558,7 +557,7 @@ pub struct VoicesItem {
     pub locale: String,
     #[serde(rename = "LocaleName")]
     pub locale_name: String,
-    #[serde(rename = "StyleList")]
+    #[serde(rename = "StyleList", skip_serializing_if = "Option::is_none")]
     pub style_list: Option<Vec<String>>,
     #[serde(rename = "SampleRateHertz")]
     pub sample_rate_hertz: String,
@@ -566,9 +565,12 @@ pub struct VoicesItem {
     pub voice_type: String,
     #[serde(rename = "Status")]
     pub status: String,
-    #[serde(rename = "RolePlayList")]
+    #[serde(rename = "RolePlayList", skip_serializing_if = "Option::is_none")]
     pub role_play_list: Option<Vec<String>>,
 }
+
+
+
 
 #[derive(Debug)]
 pub struct VoicesList {

@@ -1,15 +1,16 @@
 use crate::{info, random_string, MsTtsMsgRequest};
 use actix_web::http::StatusCode;
 
-use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
+use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer};
 use fancy_regex::Regex;
 use log::{debug, error, warn};
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Display, format, Formatter};
+use serde::de::DeserializeOwned;
 
 
-use crate::ms_tts::{MS_TTS_CONFIG, MsTtsMsgResponse};
+use crate::ms_tts::{MS_TTS_CONFIG, MsTtsMsgResponse, VoicesItem};
 use urlencoding::decode as url_decode;
 
 // ##### Error Struct ############################################################################
@@ -30,6 +31,39 @@ impl Error for ControllerError {
         Some(self)
     }
 }
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct ApiBaseResponse<T> {
+    pub code: i32,
+    pub data: Option<T>,
+    pub msg: String,
+}
+
+impl<T> ToString for ApiBaseResponse<T>
+    where T: Serialize + DeserializeOwned + Debug {
+    fn to_string(&self) -> String {
+        serde_json::to_string(self).unwrap()
+    }
+}
+
+impl<T> ApiBaseResponse<T> {
+    pub fn success(data: T) -> ApiBaseResponse<T> {
+        ApiBaseResponse {
+            code: 0,
+            data: Some(data),
+            msg: "success".to_string(),
+        }
+    }
+
+    pub fn error(msg: &str) -> ApiBaseResponse<T> {
+        ApiBaseResponse {
+            code: -1,
+            data: None,
+            msg: msg.to_owned(),
+        }
+    }
+}
+
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct MsTtsMsgRequestJson {
@@ -199,16 +233,28 @@ impl MsTtsMsgRequestJson {
 }
 
 /// 监听
-#[actix_web::main]
+
 pub(crate) async fn register_service(address: String, port: String) {
     let web_server = HttpServer::new(|| {
         let mut app = App::new();
 
         app = app.service(
+            web::resource("/api-list")
+                .route(web::get().to(get_api_list))
+                .route(web::post().to(get_api_list)),
+        );
+
+        // 微软 TTS 文本转语音 相关接口
+        app = app.service(
             web::resource("/tts-ms")
                 .route(web::get().to(tts_ms_get_controller))
                 .route(web::post().to(tts_ms_post_controller)),
+        ).service(
+            web::resource("/ms-tts/style/{informant}")
+                // .name("user_detail")
+                .route(web::get().to(get_ms_tts_style)),
         );
+        app = app.route("/ms-tts/informant", web::get().to(get_ms_tts_informant)).route("/ms-tts/quality", web::get().to(get_ms_tts_quality));
 
         app
     });
@@ -265,7 +311,6 @@ async fn request_ms_tts(data: Result<MsTtsMsgRequest, ControllerError>) -> HttpR
             // debug!("请求微软语音完成");
             match kk {
                 Some(data) => {
-
                     let data = MsTtsMsgResponse::from_vec(data.as_bytes().unwrap().to_vec());
 
                     let mut respone =
@@ -297,22 +342,187 @@ async fn request_ms_tts(data: Result<MsTtsMsgRequest, ControllerError>) -> HttpR
                     );
                     respone
                 }
-                // _ => {
-                //     let mut respone = HttpResponse::build(StatusCode::OK).body("未知错误");
-                //     respone.headers_mut().insert(
-                //         actix_web::http::header::CONTENT_TYPE,
-                //         "text".parse().unwrap(),
-                //     );
-                //     warn!("未知错误 {:?}", e);
-                //     respone
-                // }
             }
         }
     }
 }
 
 
-// #[get("/{id}/{name}/index.html")]
-// async fn index1(web::Path((id, name)): web::Path<(u32, String)>) -> impl Responder {
-//     return format!("Hello {}! id:{}", name, id);
-// }
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct ApiListResponse {
+    list: Vec<ApiListItem>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct ApiListItem {
+    name: String,
+    desc: String,
+    url: String,
+    params: Vec<ApiParam>,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub enum ParamType {
+    String,
+    Float,
+    List,
+}
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct ApiParam {
+    index: usize,
+    param_type: ParamType,
+    param_name: String,
+    param_desc: String,
+    // Float
+    #[serde(skip_serializing_if = "Option::is_none")]
+    float_min: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    float_max: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    default_value: Option<f32>,
+    // List
+    #[serde(skip_serializing_if = "Option::is_none")]
+    list_data_url: Option<String>,
+}
+
+
+#[derive(Serialize, Deserialize, PartialEq, Debug)]
+pub struct ListDataItem {
+    key: String,
+    desc: String,
+    #[serde(skip_serializing_if = "serde_json::Value::is_null")]
+    data: serde_json::Value,
+}
+
+
+///
+/// /api-list
+/// 获取可用语音合成接口列表
+///
+async fn get_api_list(_req: HttpRequest) -> HttpResponse {
+    let data = include_bytes!("resource/api-list.json");
+    let api_list: Vec<ApiListItem> = serde_json::from_slice(data).unwrap();
+    // let tmp = ApiListResponse { list: api_list };
+    HttpResponse::Ok()
+        .content_type("application/json")
+        .body(ApiBaseResponse::success(api_list).to_string())
+}
+
+
+///
+/// /ms-tts/informant
+/// 获取微软文本转语音接口发音人列表
+///
+async fn get_ms_tts_informant(_req: HttpRequest) -> HttpResponse {
+    let ms_tts_data = crate::ms_tts::MS_TTS_CONFIG.get();
+
+    match ms_tts_data {
+        Some(data) => {
+            let mut list: Vec<ListDataItem> = Vec::new();
+            data.voices_list.voices_name_list.iter().for_each(|v| {
+                let voice_item = data.voices_list.by_voices_name_map.get(v).unwrap();
+                let desc = format!("{} - {} - {}", &voice_item.display_name, &voice_item.local_name, &voice_item.locale_name);
+                let voices_item = VoicesItem {
+                    name: voice_item.name.clone(),
+                    display_name: voice_item.display_name.clone(),
+                    local_name: voice_item.local_name.clone(),
+                    short_name: voice_item.short_name.clone(),
+                    gender: voice_item.gender.clone(),
+                    locale: voice_item.locale.clone(),
+                    locale_name: voice_item.locale_name.clone(),
+                    style_list: None,
+                    sample_rate_hertz: voice_item.sample_rate_hertz.clone(),
+                    voice_type: voice_item.voice_type.clone(),
+                    status: voice_item.status.clone(),
+                    role_play_list: None,
+                };
+
+                let tmp = serde_json::to_value(voices_item).unwrap();
+
+                list.push(ListDataItem {
+                    key: v.clone(),
+                    desc,
+                    data: tmp,
+                });
+            });
+
+            HttpResponse::Ok()
+                .content_type("application/json")
+                .body(ApiBaseResponse::success(list).to_string())
+        }
+        None => {
+            HttpResponse::InternalServerError()
+                .content_type("application/json")
+                .body(ApiBaseResponse::<()>::error("配置数据不存在").to_string())
+        }
+    }
+}
+
+
+///
+/// /ms-tts/quality
+/// 获取微软文本转语音接口音质列表
+///
+async fn get_ms_tts_quality(_req: HttpRequest) -> HttpResponse {
+    let list_tmp = crate::ms_tts::MS_TTS_QUALITY_LIST;
+
+    let mut list: Vec<ListDataItem> = Vec::new();
+
+    list_tmp.iter().for_each(|v| {
+        list.push(ListDataItem {
+            key: v.to_string(),
+            desc: "".to_owned(),
+            data: serde_json::Value::Null,
+        });
+    });
+
+    HttpResponse::Ok()
+        .content_type("application/json")
+        .body(ApiBaseResponse::success(list).to_string())
+}
+
+//
+// #[get("/ms-tts/style/{informant}")]
+async fn get_ms_tts_style(path_parme: web::Path<(String)>) -> HttpResponse {
+    let informant = path_parme.into_inner();
+    let ms_tts_data = crate::ms_tts::MS_TTS_CONFIG.get();
+
+    match ms_tts_data {
+        Some(data) => {
+            let mut list_data: Vec<ListDataItem> = Vec::new();
+
+            let voice_item = data.voices_list.by_voices_name_map.get(&informant).unwrap();
+            let mut vec_style = if voice_item.style_list.is_some() {
+                let mut ff = Vec::new();
+                ff.push("general".to_string());
+                let mut kk = voice_item.style_list.as_ref().unwrap().iter().cloned().collect::<Vec<_>>();
+                ff.append(&mut kk);
+                ff
+            } else {
+                let mut ff = Vec::new();
+                ff.push("general".to_string());
+                ff
+            };
+
+            vec_style.iter().for_each(|v| {
+                list_data.push(ListDataItem {
+                    key: v.clone(),
+                    desc: "".to_owned(),
+                    data: serde_json::Value::Null,
+                });
+            });
+
+
+            HttpResponse::Ok()
+                .content_type("application/json")
+                .body(ApiBaseResponse::success(list_data).to_string())
+        }
+        None => {
+            HttpResponse::InternalServerError()
+                .content_type("application/json")
+                .body(ApiBaseResponse::<()>::error("配置数据不存在").to_string())
+        }
+    }
+}
+
