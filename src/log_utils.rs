@@ -4,9 +4,9 @@ use log4rs::append::console::ConsoleAppender;
 use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Logger, Root};
 //, Logger
-use log4rs::encode::pattern::PatternEncoder;
 use crate::AppArgs;
-use clap::{Parser};
+use clap::Parser;
+use log4rs::encode::pattern::PatternEncoder;
 
 pub(crate) fn init_log() {
     let args: AppArgs = AppArgs::parse();
@@ -27,7 +27,8 @@ pub(crate) fn init_log() {
             .unwrap();
         config = config.appender(Appender::builder().build("file", Box::new(log_to_file)));
     }
-    config = config.logger(Logger::builder().build("reqwest", LevelFilter::Warn))
+    config = config
+        .logger(Logger::builder().build("reqwest", LevelFilter::Warn))
         .logger(Logger::builder().build("rustls", LevelFilter::Warn))
         .logger(Logger::builder().build("tungstenite", LevelFilter::Warn))
         .logger(Logger::builder().build("actix_server::builder", LevelFilter::Warn))
@@ -38,13 +39,12 @@ pub(crate) fn init_log() {
         root = root.appender("file");
     }
 
-    let config_tmp = config.build(
-        if args.debug {
+    let config_tmp = config
+        .build(if args.debug {
             root.build(LevelFilter::Debug)
         } else {
             root.build(LevelFilter::Info)
-        }
-    )
+        })
         .unwrap();
 
     log4rs::init_config(config_tmp).unwrap();

@@ -3,8 +3,8 @@ extern crate core;
 use crate::ms_tts::MsTtsMsgRequest;
 use crate::utils::random_string;
 use clap::{ArgEnum, Parser};
-use event_bus::core::{EventBus};
-use event_bus::message::{VertxMessage};
+use event_bus::core::EventBus;
+use event_bus::message::VertxMessage;
 pub use log::*;
 use once_cell::sync::Lazy;
 use std::sync::Arc;
@@ -20,7 +20,8 @@ pub mod utils;
 #[clap(author, version)]
 #[clap(name = "tts-server")]
 #[clap(author = "litcc")]
-#[clap(about = r##"TTS Api Server 软件仅供学习交流，严禁用于商业用途，请于24小时内删除！
+#[clap(
+    about = r##"TTS Api Server 软件仅供学习交流，严禁用于商业用途，请于24小时内删除！
     目前已实现接口有：[微软文本转语音] 后续看情况可能会再加入其他接口。
 
     微软文本转语音接口： /tts-ms
@@ -44,8 +45,10 @@ pub mod utils;
                         "text": "{{java.encodeURI(speakText).replace('+','%20')}}"
                     }
                 }
-"##)]
-#[clap(long_about = r##"TTS Api Server 软件仅供学习交流，严禁用于商业用途，请于24小时内删除！
+"##
+)]
+#[clap(
+    long_about = r##"TTS Api Server 软件仅供学习交流，严禁用于商业用途，请于24小时内删除！
     目前已实现接口有：[微软文本转语音] 后续看情况可能会再加入其他接口。
 
     微软文本转语音接口： /tts-ms
@@ -69,7 +72,8 @@ pub mod utils;
                         "text": "{{java.encodeURI(speakText)}}"
                     }
                 }
-"##)]
+"##
+)]
 pub(crate) struct AppArgs {
     /// 指定连接渠道
     #[clap(long, arg_enum, value_name = "area", default_value_t = ServerArea::Default)]
@@ -106,7 +110,6 @@ pub(crate) struct AppArgs {
     /// 日志文件路径
     #[clap(long,default_value_t = format!("{}/local_ocr/ocr.log", std::env::temp_dir().to_str().unwrap()))]
     log_path: String,
-
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ArgEnum)]
@@ -116,7 +119,6 @@ enum ServerArea {
     ChinaHK,
     ChinaTW,
 }
-
 
 pub(crate) static GLOBAL_EB: Lazy<Arc<EventBus<VertxMessage>>> = Lazy::new(|| {
     let eb = EventBus::<VertxMessage>::new(Default::default());
@@ -132,15 +134,25 @@ async fn main() {
     let args: AppArgs = AppArgs::parse();
 
     if args.show_quality_list {
-        println!("当前可使用的音频参数有: \n{:?}", ms_tts::MS_TTS_QUALITY_LIST);
+        println!(
+            "当前可使用的音频参数有: \n{:?}",
+            ms_tts::MS_TTS_QUALITY_LIST
+        );
         std::process::exit(0);
     }
 
     if args.show_informant_list {
-        ms_tts::MS_TTS_CONFIG.get_or_init(|| async  {
-            ms_tts::get_ms_tts_config().await.unwrap()
-        }).await;
-        println!("当前可使用的发音人参数有: \n{:?}", ms_tts::MS_TTS_CONFIG.get().unwrap().voices_list.voices_name_list);
+        ms_tts::MS_TTS_CONFIG
+            .get_or_init(|| async { ms_tts::get_ms_tts_config().await.unwrap() })
+            .await;
+        println!(
+            "当前可使用的发音人参数有: \n{:?}",
+            ms_tts::MS_TTS_CONFIG
+                .get()
+                .unwrap()
+                .voices_list
+                .voices_name_list
+        );
         std::process::exit(0);
     }
 
@@ -154,5 +166,4 @@ async fn main() {
     // runtime.block_on(async move {
     //
     // });
-
 }

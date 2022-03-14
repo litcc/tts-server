@@ -32,6 +32,8 @@ tokio-native-tls = "0.3.0"
 ## tokio-tungstenite 暂时不能升级，可能是库有问题了，或者是我用法出问题了，暂时没有分析
 tokio-tungstenite = { version = "0.16.1", features = ["native-tls"] }
 tokio = { version = "1.17.0", features = ["full"] } # 协程库
+rust-embed = "6.3.0"  # 嵌入文件库
+mime_guess = "2.0.4"  # 文件类型检测
 event_bus = { git = "https://github.com/litcc/event_bus.git" }
 
 

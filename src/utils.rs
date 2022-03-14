@@ -38,7 +38,6 @@ pub fn random_string(num: u32) -> String {
 
 ///
 
-
 // 二进制数组查询
 pub fn binary_search(bin: &[u8], search: &[u8]) -> Option<usize> {
     if bin.len() > usize::MAX - search.len() {
