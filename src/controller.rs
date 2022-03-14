@@ -109,23 +109,23 @@ impl MsTtsMsgRequestJson {
 
             let result = Regex::new(r"？")
                 .unwrap()
-                .replace_all(&text_tmp2, "?")
+                .replace_all(&text_tmp2, "? ")
                 .to_string();
             let result = Regex::new(r"，")
                 .unwrap()
-                .replace_all(&result, ",")
+                .replace_all(&result, ", ")
                 .to_string();
             let result = Regex::new(r"。")
                 .unwrap()
-                .replace_all(&result, ".")
+                .replace_all(&result, ". ")
                 .to_string();
             let result = Regex::new(r"：")
                 .unwrap()
-                .replace_all(&result, ":")
+                .replace_all(&result, ": ")
                 .to_string();
             let result = Regex::new(r"；")
                 .unwrap()
-                .replace_all(&result, ";")
+                .replace_all(&result, "; ")
                 .to_string();
 
             result
