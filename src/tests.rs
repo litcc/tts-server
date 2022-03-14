@@ -62,7 +62,6 @@ fn test4() {
     }
 }
 
-
 ///
 /// 测试微软服务器连通性
 #[tokio::test]
@@ -75,9 +74,7 @@ async fn test_ms_server_connectivity_cn() {
         error!("{:?}", kk);
         assert!(kk.is_ok());
     }
-
 }
-
 
 /// 测试微软服务器连通性
 #[tokio::test]
@@ -90,7 +87,6 @@ async fn test_ms_server_connectivity_cn_tw() {
         let kk = crate::ms_tts::new_websocket_by_select_server(Some(i)).await;
         assert!(kk.is_ok());
     }
-
 }
 
 /// 测试微软服务器连通性

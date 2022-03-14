@@ -7,7 +7,8 @@ use futures_util::stream::SplitSink;
 use futures_util::{SinkExt, StreamExt};
 use itertools::Itertools;
 use log::{debug, error, info, trace, warn};
-use once_cell::sync::{Lazy};
+use once_cell::sync::Lazy;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
@@ -15,7 +16,6 @@ use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use rand::Rng;
 
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, OnceCell};
@@ -49,7 +49,6 @@ pub(crate) static MS_TTS_SERVER_CHINA_LIST: [&str; 7] = [
     // 国内其他地点
     "47.95.21.44",
     "182.61.148.24",
-
     //	国内无法访问
     // "171.117.98.148",
     // "103.36.193.41",
@@ -89,7 +88,6 @@ pub(crate) static MS_TTS_SERVER_CHINA_TW_LIST: [&str; 12] = [
     "114.46.186.185",
 ];
 
-
 pub(crate) static MS_TTS_QUALITY_LIST: [&str; 32] = [
     "audio-16khz-128kbitrate-mono-mp3",
     "audio-16khz-16bit-32kbps-mono-opus",
@@ -125,7 +123,6 @@ pub(crate) static MS_TTS_QUALITY_LIST: [&str; 32] = [
     "webm-24khz-16bit-24kbps-mono-opus",
     "webm-24khz-16bit-mono-opus",
 ];
-
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct MsTtsMsgRequest {
@@ -174,7 +171,6 @@ impl Into<event_bus::message::Body> for MsTtsMsgRequest {
     }
 }
 
-
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct MsTtsMsgResponse {
     pub request_id: String,
@@ -187,7 +183,6 @@ impl MsTtsMsgResponse {
     pub fn to_bytes(&self) -> Bytes {
         Bytes::from(bincode::serialize(self).unwrap())
     }
-
 
     #[inline]
     pub fn from_bytes(bytes: Bytes) -> Self {
@@ -207,11 +202,9 @@ impl MsTtsMsgResponse {
     }
 }
 
-
 type WebsocketRt = SplitSink<WebSocketStream<TlsStream<TcpStream>>, Message>;
 
 static SOCKET_TX: OnceCell<Arc<Mutex<Option<WebsocketRt>>>> = OnceCell::const_new();
-
 
 pub(crate) struct MsTtsCache {
     pub(crate) data: BytesMut,
@@ -220,13 +213,13 @@ pub(crate) struct MsTtsCache {
 }
 
 // &'static mut HashMap<String, Mutex<MsTtsCache>>
-static MS_TTS_DATA_CACHE: Lazy<Arc<Mutex<HashMap<String, Arc<Mutex<MsTtsCache>>>>>> = Lazy::new(|| {
-    let kk = HashMap::new();
-    Arc::new(Mutex::new(kk))
-});
+static MS_TTS_DATA_CACHE: Lazy<Arc<Mutex<HashMap<String, Arc<Mutex<MsTtsCache>>>>>> =
+    Lazy::new(|| {
+        let kk = HashMap::new();
+        Arc::new(Mutex::new(kk))
+    });
 
 static MS_TTS_GET_NEW: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
-
 
 pub(crate) async fn register_service() {
     debug!("register_service");
@@ -329,7 +322,6 @@ pub(crate) async fn register_service() {
                                                 trace!("其他二进制类型: {} ", unsafe { String::from_utf8_unchecked(s.to_vec()) });
                                             }
                                         }
-                                        _ => {}
                                     }
                                 }
                                 Err(e) => {
@@ -407,9 +399,9 @@ static MS_TTS_TOKEN: Lazy<String> = Lazy::new(|| {
             54, 65, 53, 65, 65, 49, 68, 52, 69, 65, 70, 70, 52, 69, 57, 70, 66, 51, 55, 69, 50, 51,
             68, 54, 56, 52, 57, 49, 68, 54, 70, 52,
         ]
-            .to_vec(),
+        .to_vec(),
     )
-        .unwrap()
+    .unwrap()
 });
 
 ///
@@ -425,17 +417,20 @@ pub(crate) async fn new_websocket() -> Result<WebSocketStream<TlsStream<TcpStrea
         ServerArea::China => {
             info!("连接至内陆服务器");
             let select = rand::thread_rng().gen_range(0..MS_TTS_SERVER_CHINA_LIST.len());
-            new_websocket_by_select_server(Some(MS_TTS_SERVER_CHINA_LIST.get(select).unwrap())).await
+            new_websocket_by_select_server(Some(MS_TTS_SERVER_CHINA_LIST.get(select).unwrap()))
+                .await
         }
         ServerArea::ChinaHK => {
             info!("连接至香港服务器");
             let select = rand::thread_rng().gen_range(0..MS_TTS_SERVER_CHINA_HK_LIST.len());
-            new_websocket_by_select_server(Some(MS_TTS_SERVER_CHINA_HK_LIST.get(select).unwrap())).await
+            new_websocket_by_select_server(Some(MS_TTS_SERVER_CHINA_HK_LIST.get(select).unwrap()))
+                .await
         }
         ServerArea::ChinaTW => {
             info!("连接至台湾服务器");
             let select = rand::thread_rng().gen_range(0..MS_TTS_SERVER_CHINA_TW_LIST.len());
-            new_websocket_by_select_server(Some(MS_TTS_SERVER_CHINA_TW_LIST.get(select).unwrap())).await
+            new_websocket_by_select_server(Some(MS_TTS_SERVER_CHINA_TW_LIST.get(select).unwrap()))
+                .await
         }
     }
 }
@@ -485,10 +480,12 @@ pub(crate) async fn new_websocket_by_select_server(
     let domain = "speech.platform.bing.com";
 
     // let jj = native_tls::TlsConnector::new().unwrap();
-    let jj = native_tls::TlsConnector::builder().use_sni(false).build().unwrap();
+    let jj = native_tls::TlsConnector::builder()
+        .use_sni(false)
+        .build()
+        .unwrap();
 
     let config = tokio_native_tls::TlsConnector::from(jj);
-
 
     let sock = match server {
         Some(s) => {
@@ -504,14 +501,13 @@ pub(crate) async fn new_websocket_by_select_server(
                 ),
                 443,
             ))
-                .await
+            .await
         }
         None => {
             info!("连接至 speech.platform.bing.com");
             TcpStream::connect("speech.platform.bing.com:443").await
         }
     };
-
 
     if let Err(e) = sock {
         return Err(format!(
@@ -524,7 +520,7 @@ pub(crate) async fn new_websocket_by_select_server(
     let tsl_stream = config.connect(domain, sock).await;
 
     if let Err(e) = tsl_stream {
-        error!("{:?}", e );
+        error!("{:?}", e);
         return Err(format!("tsl握手失败! {}", e));
     }
     let tsl_stream = tsl_stream.unwrap();
@@ -539,7 +535,7 @@ pub(crate) async fn new_websocket_by_select_server(
             accept_unmasked_frames: false,
         }),
     )
-        .await;
+    .await;
 
     return match websocket {
         Ok(_websocket) => {
@@ -578,7 +574,6 @@ pub struct VoicesItem {
     pub role_play_list: Option<Vec<String>>,
 }
 
-
 #[derive(Debug)]
 pub struct VoicesList {
     pub voices_name_list: HashSet<String>,
@@ -611,8 +606,7 @@ pub(crate) async fn get_ms_online_config() -> Result<String, Box<dyn Error>> {
         .await?;
     let html = resp.text().await?;
     //debug!("html内容：{}",html);
-    let token = Regex::new(r#"token: "([a-zA-Z0-9\._-]+)""#)?
-        .captures(&html)?;
+    let token = Regex::new(r#"token: "([a-zA-Z0-9\._-]+)""#)?.captures(&html)?;
     let token_str = match token {
         Some(t) => {
             let df = t.get(1).unwrap().as_str();
@@ -661,7 +655,6 @@ pub(crate) async fn get_ms_online_config() -> Result<String, Box<dyn Error>> {
     }
     Err("获取在线配置失败".into())
 }
-
 
 ///
 /// 获取微软文本转语音支持的发音人配置
@@ -716,8 +709,10 @@ pub(crate) async fn get_ms_tts_config() -> Option<MsTtsConfig> {
         by_locale_map,
     };
 
-
-    let quality_list_tmp: Vec<String> = MS_TTS_QUALITY_LIST.iter().map(|i| i.to_string()).collect_vec();
+    let quality_list_tmp: Vec<String> = MS_TTS_QUALITY_LIST
+        .iter()
+        .map(|i| i.to_string())
+        .collect_vec();
 
     return Some(MsTtsConfig {
         voices_list: v_list,

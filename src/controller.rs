@@ -1,16 +1,16 @@
 use crate::{info, random_string, MsTtsMsgRequest};
 use actix_web::http::StatusCode;
-
-use actix_web::{get, post, web, App, HttpRequest, HttpResponse, HttpServer};
+use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use fancy_regex::Regex;
 use log::{debug, error, warn};
+use mime_guess::from_path;
+use rust_embed::RustEmbed;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::error::Error;
-use std::fmt::{Debug, Display, format, Formatter};
-use serde::de::DeserializeOwned;
+use std::fmt::{Debug, Display, Formatter};
 
-
-use crate::ms_tts::{MS_TTS_CONFIG, MsTtsMsgResponse, VoicesItem};
+use crate::ms_tts::{MsTtsMsgResponse, VoicesItem, MS_TTS_CONFIG};
 use urlencoding::decode as url_decode;
 
 // ##### Error Struct ############################################################################
@@ -40,7 +40,9 @@ pub struct ApiBaseResponse<T> {
 }
 
 impl<T> ToString for ApiBaseResponse<T>
-    where T: Serialize + DeserializeOwned + Debug {
+where
+    T: Serialize + DeserializeOwned + Debug,
+{
     fn to_string(&self) -> String {
         serde_json::to_string(self).unwrap()
     }
@@ -63,7 +65,6 @@ impl<T> ApiBaseResponse<T> {
         }
     }
 }
-
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct MsTtsMsgRequestJson {
@@ -238,6 +239,7 @@ pub(crate) async fn register_service(address: String, port: String) {
     let web_server = HttpServer::new(|| {
         let mut app = App::new();
 
+        // api
         app = app.service(
             web::resource("/api-list")
                 .route(web::get().to(get_api_list))
@@ -245,16 +247,25 @@ pub(crate) async fn register_service(address: String, port: String) {
         );
 
         // 微软 TTS 文本转语音 相关接口
-        app = app.service(
-            web::resource("/tts-ms")
-                .route(web::get().to(tts_ms_get_controller))
-                .route(web::post().to(tts_ms_post_controller)),
-        ).service(
-            web::resource("/ms-tts/style/{informant}")
-                // .name("user_detail")
-                .route(web::get().to(get_ms_tts_style)),
-        );
-        app = app.route("/ms-tts/informant", web::get().to(get_ms_tts_informant)).route("/ms-tts/quality", web::get().to(get_ms_tts_quality));
+        app = app
+            .service(
+                web::resource("/tts-ms")
+                    .route(web::get().to(tts_ms_get_controller))
+                    .route(web::post().to(tts_ms_post_controller)),
+            )
+            .service(
+                web::resource("/ms-tts/style/{informant}")
+                    // .name("user_detail")
+                    .route(web::get().to(get_ms_tts_style)),
+            );
+        app = app
+            .route("/ms-tts/informant", web::get().to(get_ms_tts_informant))
+            .route("/ms-tts/quality", web::get().to(get_ms_tts_quality));
+
+        // web
+        app = app
+            .service(web::resource("/").route(web::get().to(index)))
+            .service(web::resource("/{_:.*}").route(web::get().to(dist)));
 
         app
     });
@@ -262,15 +273,26 @@ pub(crate) async fn register_service(address: String, port: String) {
     match web_server {
         Ok(server) => {
             let local_ip = local_ipaddress::get();
-            info!("启动 Api 服务成功 接口地址已监听至: http://{}:{}/tts-ms  自行修改 ip 以及 port", address, port);
+            info!(
+                "启动 Api 服务成功 接口地址已监听至: http://{}:{}/tts-ms  自行修改 ip 以及 port",
+                address, port
+            );
             if local_ip.is_some() {
-                info!("您当前局域网ip可能为: {} 请自行替换上面的监听地址", local_ip.unwrap());
+                info!(
+                    "您当前局域网ip可能为: {} 请自行替换上面的监听地址",
+                    local_ip.unwrap()
+                );
             }
-            server.workers(1).max_connections(1000).backlog(1000)
-                .run().await.unwrap();
+            server
+                .workers(1)
+                .max_connections(1000)
+                .backlog(1000)
+                .run()
+                .await
+                .unwrap();
         }
         Err(_e) => {
-            error!("启动 Api 服务失败，无法监听 {}:{}",address,port);
+            error!("启动 Api 服务失败，无法监听 {}:{}", address, port);
         }
     }
 }
@@ -280,7 +302,7 @@ async fn tts_ms_post_controller(
     body: web::Json<MsTtsMsgRequestJson>,
 ) -> HttpResponse {
     let id = random_string(32);
-    debug!("收到 post 请求{:?}",body);
+    debug!("收到 post 请求{:?}", body);
     let request_tmp = body.to_ms_request(id.clone());
     info!("解析 post 请求 {:?}", request_tmp);
     let re = request_ms_tts(request_tmp).await;
@@ -293,14 +315,13 @@ async fn tts_ms_get_controller(
     request: web::Query<MsTtsMsgRequestJson>,
 ) -> HttpResponse {
     let id = random_string(32);
-    debug!("收到 get 请求{:?}",request);
+    debug!("收到 get 请求{:?}", request);
     let request_tmp = request.to_ms_request(id.clone());
     info!("解析 get 请求 {:?}", request_tmp);
     let re = request_ms_tts(request_tmp).await;
     debug!("响应 get 请求 {}", &id);
     return re;
 }
-
 
 async fn request_ms_tts(data: Result<MsTtsMsgRequest, ControllerError>) -> HttpResponse {
     match data {
@@ -313,8 +334,7 @@ async fn request_ms_tts(data: Result<MsTtsMsgRequest, ControllerError>) -> HttpR
                 Some(data) => {
                     let data = MsTtsMsgResponse::from_vec(data.as_bytes().unwrap().to_vec());
 
-                    let mut respone =
-                        HttpResponse::build(StatusCode::OK).body(data.data);
+                    let mut respone = HttpResponse::build(StatusCode::OK).body(data.data);
                     respone.headers_mut().insert(
                         actix_web::http::header::CONTENT_TYPE,
                         data.file_type.parse().unwrap(),
@@ -327,26 +347,24 @@ async fn request_ms_tts(data: Result<MsTtsMsgRequest, ControllerError>) -> HttpR
                         actix_web::http::header::CONTENT_TYPE,
                         "text".parse().unwrap(),
                     );
-                    warn!("生成语音失败 {}",id);
+                    warn!("生成语音失败 {}", id);
                     respone
                 }
             }
         }
-        Err(e) => {
-            match e {
-                ControllerError::TextNone(_t) => {
-                    let mut respone = HttpResponse::build(StatusCode::OK).body(crate::ms_tts::BLANK_MUSIC_FILE.to_vec());
-                    respone.headers_mut().insert(
-                        actix_web::http::header::CONTENT_TYPE,
-                        "audio/mpeg".parse().unwrap(),
-                    );
-                    respone
-                }
+        Err(e) => match e {
+            ControllerError::TextNone(_t) => {
+                let mut respone = HttpResponse::build(StatusCode::OK)
+                    .body(crate::ms_tts::BLANK_MUSIC_FILE.to_vec());
+                respone.headers_mut().insert(
+                    actix_web::http::header::CONTENT_TYPE,
+                    "audio/mpeg".parse().unwrap(),
+                );
+                respone
             }
-        }
+        },
     }
 }
-
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct ApiListResponse {
@@ -386,7 +404,6 @@ pub struct ApiParam {
     list_data_url: Option<String>,
 }
 
-
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct ListDataItem {
     key: String,
@@ -395,6 +412,24 @@ pub struct ListDataItem {
     data: serde_json::Value,
 }
 
+#[derive(RustEmbed)]
+#[folder = "web/dist/"]
+struct WebAsset;
+
+fn handle_embedded_file(path: &str) -> HttpResponse {
+    // let index_html = WebAsset::get("prefix/index.html").unwrap();
+    //RustEmbed::get()  Asset::get
+    match WebAsset::get(path) {
+        Some(content) => {
+            let kk = content.data;
+            let hh = kk.into_owned();
+            HttpResponse::Ok()
+                .content_type(from_path(path).first_or_octet_stream().as_ref())
+                .body(hh)
+        }
+        None => HttpResponse::NotFound().body("404 Not Found"),
+    }
+}
 
 ///
 /// /api-list
@@ -409,6 +444,18 @@ async fn get_api_list(_req: HttpRequest) -> HttpResponse {
         .body(ApiBaseResponse::success(api_list).to_string())
 }
 
+async fn index() -> HttpResponse {
+    handle_embedded_file("index.html")
+}
+
+async fn dist(path: web::Path<String>) -> HttpResponse {
+    let patd = path.into_inner();
+    handle_embedded_file(&patd)
+}
+
+async fn favicon_ico() -> HttpResponse {
+    handle_embedded_file("favicon.ico")
+}
 
 ///
 /// /ms-tts/informant
@@ -422,7 +469,10 @@ async fn get_ms_tts_informant(_req: HttpRequest) -> HttpResponse {
             let mut list: Vec<ListDataItem> = Vec::new();
             data.voices_list.voices_name_list.iter().for_each(|v| {
                 let voice_item = data.voices_list.by_voices_name_map.get(v).unwrap();
-                let desc = format!("{} - {} - {}", &voice_item.display_name, &voice_item.local_name, &voice_item.locale_name);
+                let desc = format!(
+                    "{} - {} - {}",
+                    &voice_item.display_name, &voice_item.local_name, &voice_item.locale_name
+                );
                 let voices_item = VoicesItem {
                     name: voice_item.name.clone(),
                     display_name: voice_item.display_name.clone(),
@@ -451,14 +501,11 @@ async fn get_ms_tts_informant(_req: HttpRequest) -> HttpResponse {
                 .content_type("application/json")
                 .body(ApiBaseResponse::success(list).to_string())
         }
-        None => {
-            HttpResponse::InternalServerError()
-                .content_type("application/json")
-                .body(ApiBaseResponse::<()>::error("配置数据不存在").to_string())
-        }
+        None => HttpResponse::InternalServerError()
+            .content_type("application/json")
+            .body(ApiBaseResponse::<()>::error("配置数据不存在").to_string()),
     }
 }
-
 
 ///
 /// /ms-tts/quality
@@ -484,7 +531,7 @@ async fn get_ms_tts_quality(_req: HttpRequest) -> HttpResponse {
 
 //
 // #[get("/ms-tts/style/{informant}")]
-async fn get_ms_tts_style(path_parme: web::Path<(String)>) -> HttpResponse {
+async fn get_ms_tts_style(path_parme: web::Path<String>) -> HttpResponse {
     let informant = path_parme.into_inner();
     let ms_tts_data = crate::ms_tts::MS_TTS_CONFIG.get();
 
@@ -493,10 +540,16 @@ async fn get_ms_tts_style(path_parme: web::Path<(String)>) -> HttpResponse {
             let mut list_data: Vec<ListDataItem> = Vec::new();
 
             let voice_item = data.voices_list.by_voices_name_map.get(&informant).unwrap();
-            let mut vec_style = if voice_item.style_list.is_some() {
+            let vec_style = if voice_item.style_list.is_some() {
                 let mut ff = Vec::new();
                 ff.push("general".to_string());
-                let mut kk = voice_item.style_list.as_ref().unwrap().iter().cloned().collect::<Vec<_>>();
+                let mut kk = voice_item
+                    .style_list
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
                 ff.append(&mut kk);
                 ff
             } else {
@@ -513,16 +566,12 @@ async fn get_ms_tts_style(path_parme: web::Path<(String)>) -> HttpResponse {
                 });
             });
 
-
             HttpResponse::Ok()
                 .content_type("application/json")
                 .body(ApiBaseResponse::success(list_data).to_string())
         }
-        None => {
-            HttpResponse::InternalServerError()
-                .content_type("application/json")
-                .body(ApiBaseResponse::<()>::error("配置数据不存在").to_string())
-        }
+        None => HttpResponse::InternalServerError()
+            .content_type("application/json")
+            .body(ApiBaseResponse::<()>::error("配置数据不存在").to_string()),
     }
 }
-
