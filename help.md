@@ -105,6 +105,8 @@ Print version information
 
 --listen-port <prot>
 监听端口
+
+[default: 8080]
 ```
 
 ###### 执行命令
