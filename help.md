@@ -120,7 +120,7 @@ shell/cmd 不能关闭，否则程序断开
 
 # Linux端
 
-###### 与Windows端一致，不过可使用screen等放在后台，同样可直接./tts-server，IP会是本机IP，端口为8080
+###### 与Windows端一致，不过可使用screen等放在后台，同样可直接 `./tts-server` ，IP会是本机IP，端口为8080
 
 ###### 输入
 
