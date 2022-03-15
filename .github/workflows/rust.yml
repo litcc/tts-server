@@ -125,7 +125,7 @@ jobs:
         uses: DuckSoft/extract-7z-action@v1.0
         with:
           pathSource: web.7z
-          pathTarget: ./web/dist/
+          pathTarget: ./
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
