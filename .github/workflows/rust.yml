@@ -18,19 +18,19 @@ jobs:
         uses: actions/setup-node@v2
         with:
           node-version: '14'
-      - name: Read package.json
-        id: package
-        uses: juliangruber/read-file-action@v1
-        with:
-          path: .git/modules/web/HEAD
-      - name: Cache Web Build
-        uses: actions/cache@v2
-        with:
-          key: tts-server-frontend-${{ steps.package.outputs.content }}
-          path: |
-            web/dist/
       - name: Web Package Build
         run: npm --prefix web/ install  && npm --prefix web/ run build
+      - name: Create Web Artifact
+        uses: DuckSoft/create-7z-action@v1.0
+        with:
+          pathSource: web/dist/
+          pathTarget: web.7z
+      - name: Upload Web Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: web-html
+          path: web.7z
+          retention-days: 1
 
   build:
     name: build for ${{ matrix.target }}
@@ -117,17 +117,15 @@ jobs:
         run: |
           git submodule sync --recursive
           git submodule update --init --recursive
-      - name: Read package.json
-        id: package
-        uses: juliangruber/read-file-action@v1
+      - name: Download Web Artifact
+        uses: actions/download-artifact@v3
         with:
-          path: .git/modules/web/HEAD
-      - name: Cache Web Build
-        uses: actions/cache@v2
+          name: web-html
+      - name: extract Web Artifact
+        uses: DuckSoft/extract-7z-action@v1.0
         with:
-          key: tts-server-frontend-${{ steps.package.outputs.content }}
-          path: |
-            web/dist/
+          pathSource: web.7z
+          pathTarget: ./web/dist/
       - name: Install Rust
         uses: actions-rs/toolchain@v1
         with:
@@ -145,9 +143,6 @@ jobs:
         run: cross build --release --target ${{ matrix.target }}
         env:
           RUST_BACKTRACE: 1
-      #      - name: Strip binary (linux and macos)
-      #        if: matrix.build == 'linux' || matrix.build == 'macos'
-      #        run: strip "target/${{ matrix.target }}/release/tts-server"
       - name: LLVM Strip
         if: matrix.os == 'ubuntu-latest'
         continue-on-error: true
@@ -163,7 +158,6 @@ jobs:
           file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
           args: ${{ matrix.args }}
           strip: false
-      #          file: "target/${{ matrix.target }}/release/${{ matrix.file }}"
       - name: Upload archive
         uses: actions/upload-artifact@v1
         with:
