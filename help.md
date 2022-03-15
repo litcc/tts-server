@@ -21,7 +21,7 @@ TTS Api Server 软件仅供学习交流，严禁用于商业用途，请于24小
 目前已实现接口有：[微软文本转语音] 后续看情况可能会再加入其他接口。
 
 微软文本转语音接口： /tts-ms
-接口支持 get,post 请求, get请求时参数拼接在url上,使			用post时,参数请使用json body传递。
+接口支持 get,post 请求, get请求时参数拼接在url上,使用post时,参数请使用json body传递。
 目前支持参数有:
 text - 待转换内容 必填参数
 informant - 发音人 可选参数,大小写严格, 默认为 zh-CN-XiaoxiaoNeural
@@ -30,7 +30,7 @@ informant - 发音人 可选参数,大小写严格, 默认为 zh-CN-XiaoxiaoNeur
 style - 发音风格 可选参数，默认为 general
 rate - 语速 可选参数 值范围 0-3 可保留两位小数, 默认为 1
 pitch - 音调 可选参数 值范围 0-2 可保留两位小数, 默认为 1
-quality - 音频格式 可选参数,默认为 audio-24khz-	48kbitrate-mono-mp3
+quality - 音频格式 可选参数,默认为 audio-24khz-48kbitrate-mono-mp3
 可通过命令行参数查看所有支持的列表
 
 基本使用教程:
@@ -72,7 +72,7 @@ Print help information
 --log-path <LOG_PATH>
 日志文件路径
 
-[default: C:\Users\ilhsy\AppData\Local\Temp\/local_ocr/ocr.log]
+[default: /tmp/local_ocr/ocr.log]
 
 --log-to-file
 将日志记录至文件
@@ -155,3 +155,111 @@ http://192.168.0.101:20222/tts-ms,{
 以上结束，本人菜鸡，瞎写的帮助文档，不过程序能够运行就是了👀️ 
 
 
+# 扩展
+## 音频格式
+
+#### 输入命令
+
+`./tts-server.exe --show-quality-list`
+
+##### 会发现出来一堆参数,挑选出来排列一下便如下，按需填至"quality" 一栏即可
+
+```
+"audio-16khz-128kbitrate-mono-mp3",
+"audio-16khz-16bit-32kbps-mono-opus",
+"audio-16khz-16kbps-mono-siren",
+"audio-16khz-32kbitrate-mono-mp3",
+"audio-16khz-64kbitrate-mono-mp3", 
+"audio-24khz-160kbitrate-mono-mp3",
+"audio-24khz-16bit-24kbps-mono-opus", 
+"audio-24khz-16bit-48kbps-mono-opus", 
+"audio-24khz-48kbitrate-mono-mp3",
+"audio-24khz-96kbitrate-mono-mp3", 
+"audio-48khz-192kbitrate-mono-mp3", 
+"audio-48khz-96kbitrate-mono-mp3",
+"ogg-16khz-16bit-mono-opus",
+"ogg-24khz-16bit-mono-opus", 
+"ogg-48khz-16bit-mono-opus", 
+"raw-16khz-16bit-mono-pcm", 
+"raw-16khz-16bit-mono-truesilk", 
+"raw-24khz-16bit-mono-pcm", 
+"raw-24khz-16bit-mono-truesilk", 
+"raw-48khz-16bit-mono-pcm",
+"raw-8khz-16bit-mono-pcm", 
+"raw-8khz-8bit-mono-alaw", 
+"raw-8khz-8bit-mono-mulaw",
+"riff-16khz-16bit-mono-pcm", 
+"riff-24khz-16bit-mono-pcm",
+"riff-48khz-16bit-mono-pcm",
+"riff-8khz-16bit-mono-pcm",
+"riff-8khz-8bit-mono-alaw", 
+"riff-8khz-8bit-mono-mulaw", 
+"webm-16khz-16bit-mono-opus",
+"webm-24khz-16bit-24kbps-mono-opus", 
+"webm-24khz-16bit-mono-opus"
+```
+
+## 发音人
+
+```
+Xiaoxiao(Neura)-晓晓
+Yunyang(Neural)-云扬
+Xiaochen(Neural)-晓辰
+Xiaohan(Neural)-晓涵
+Xiaomo(Neural))-晓墨
+Kiaoqiu(Neural)-晓秋
+Xiaorui(Neura)-晓睿
+Xiaoshuang(Neural)-晓双
+Xiaoxuan(Neural)-晓萱
+Xiaoyan(Neura)）-晓颜
+Xiaoyou(Neural)-晓悠
+Yunxi(Neural)-云希
+Yunye(Neural)-云野
+```
+
+##### 具体可使用命令
+
+`./tts-server.exe --show-informant-list`
+
+及阅读 ~~微软~~ 巨硬官方文档
+
+###### 以下发音风格同理
+
+
+> https://azure.microsoft.com/zh-cn/services/cognitive-services/text-to-speech/#features
+
+> https://docs.microsoft.com/zh-cn/azure/cognitive-services/speech-service/speech-synthesis-markup?tabs=csharp#adjust-speaking-styles
+
+## 发音风格
+
+##### Style  说明
+```
+style="affectionate"  以较高的音调和音量表达温暖而亲切的语气。 说话者处于吸引听众注意力的状态。 说话者的个性往往是讨喜的。
+style="angry"  表达生气和厌恶的语气。
+style="assistant"  以热情而轻松的语气对数字助理讲话。
+style="calm"  以沉着冷静的态度说话。 语气、音调和韵律与其他语音类型相比要统一得多。
+style="chat"  表达轻松随意的语气。
+style="cheerful"  表达积极愉快的语气。
+style="customerservice"  以友好热情的语气为客户提供支持。
+style="depressed"  调低音调和音量来表达忧郁、沮丧的语气。
+style="disgruntled"  表达轻蔑和抱怨的语气。 这种情绪的语音表现出不悦和蔑视。
+style="embarrassed"  在说话者感到不舒适时表达不确定、犹豫的语气。
+style="empathetic"  表达关心和理解。
+style="envious"  当你渴望别人拥有的东西时，表达一种钦佩的语气。
+style="fearful"  以较高的音调、较高的音量和较快的语速来表达恐惧、紧张的语气。 说话人处于紧张和不安的状态。
+style="gentle"  以较低的音调和音量表达温和、礼貌和愉快的语气。
+style="lyrical"  以优美又带感伤的方式表达情感。
+style="narration-professional"  以专业、客观的语气朗读内容。
+style="narration-relaxed"  为内容阅读表达一种舒缓而悦耳的语气。
+style="newscast"  以正式专业的语气叙述新闻。
+style="newscast-casual"  以通用、随意的语气发布一般新闻。
+style="newscast-formal"  以正式、自信和权威的语气发布新闻。
+style="sad"  表达悲伤语气。
+style="serious"  表达严肃和命令的语气。 说话者的声音通常比较僵硬，节奏也不那么轻松。
+```
+
+###### 大部分发音人无法使用全部风格
+
+具体阅读并使用 ~~微软~~ 巨硬官方文档
+
+> https://azure.microsoft.com/zh-cn/services/cognitive-services/text-to-speech/#features
