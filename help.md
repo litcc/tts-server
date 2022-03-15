@@ -97,16 +97,15 @@ Print version information
 
 
 ##### 找到一般需要使用的
-`        --listen-address <address>
-            监听地址
+```
+--listen-address <address>
+监听地址
 
-            [default: 0.0.0.0]
+[default: 0.0.0.0]
 
-        --listen-port <prot>
-            监听端口
-
-            [default: 8080]
-`
+--listen-port <prot>
+监听端口
+```
 
 ###### 执行命令
 `./tts-server.exe --listen-address 192.168.0.101 --listen-port 20222`
@@ -207,7 +206,7 @@ Yunyang(Neural)-云扬
 Xiaochen(Neural)-晓辰
 Xiaohan(Neural)-晓涵
 Xiaomo(Neural))-晓墨
-Kiaoqiu(Neural)-晓秋
+Xiaoqiu(Neural)-晓秋
 Xiaorui(Neura)-晓睿
 Xiaoshuang(Neural)-晓双
 Xiaoxuan(Neural)-晓萱
