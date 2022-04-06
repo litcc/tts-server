@@ -35,15 +35,15 @@ quality - 音频格式 可选参数,默认为 audio-24khz-48kbitrate-mono-mp3
 
 基本使用教程:
 举例： 在开源软件[阅读]App中可以使用如下配置来使用该接口
-http://ip:port/tts-ms,{
-"method": "POST",
-"body": {
-"informant": "zh-CN-XiaoxiaoNeural",
-"style": "general",
-"rate": {{ speakSpeed / 15 }},
-"text": "{{java.encodeURI(speakText)}}"
-}
-}
+    http://ip:port/tts-ms,{
+        "method": "POST",
+        "body": {
+            "informant": "zh-CN-XiaoxiaoNeural",
+            "style": "general",
+            "rate": {{ speakSpeed / 15 }},
+            "text": "{{java.encodeURI(speakText).replace('+','%20')}}"
+        }
+    }
 
 
 
@@ -133,16 +133,16 @@ shell/cmd 不能关闭，否则程序断开
 # 阅读导入
 
 ```
-http://192.168.0.101:20222/tts-ms,{
-                    "method": "POST",
-                    "body": {
-                        "informant": "zh-CN-XiaochenNeural",
-                        "style": "general",
-                        "rate": {{ speakSpeed / 6.5 }},
-                        "quality":"audio-48khz-96kbitrate-mono-mp3",
-                        "text": "{{java.encodeURI(speakText)}}"
-                    }
-                }
+    http://192.168.0.101:20222/tts-ms,{
+        "method": "POST",
+        "body": {
+            "informant": "zh-CN-XiaoxiaoNeural",
+            "style": "general",
+            "rate": {{ speakSpeed / 6.5 }},
+            "quality":"audio-48khz-96kbitrate-mono-mp3",
+            "text": "{{java.encodeURI(speakText).replace('+','%20')}}"
+        }
+    }
 ```
 
 ###### 根据以上模板修改IP、端口
