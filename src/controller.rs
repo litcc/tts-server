@@ -146,7 +146,7 @@ impl MsTtsMsgRequestJson {
                 }
                 None => default,
             }
-        };
+        }.trim().to_owned();
 
         let informant_item = ms_tts_config
             .voices_list
@@ -171,7 +171,7 @@ impl MsTtsMsgRequestJson {
             } else {
                 default
             }
-        };
+        }.trim().to_owned();
 
         let rate_value: String = {
             let default = "0".to_owned();
@@ -189,7 +189,7 @@ impl MsTtsMsgRequestJson {
             } else {
                 default
             }
-        };
+        }.trim().to_owned();
 
         let pitch_value: String = {
             let default = "0".to_owned();
@@ -205,7 +205,7 @@ impl MsTtsMsgRequestJson {
             } else {
                 default
             }
-        };
+        }.trim().to_owned();
         let quality_list = &ms_tts_config.quality_list;
 
         let quality_value: String = {
@@ -219,7 +219,7 @@ impl MsTtsMsgRequestJson {
             } else {
                 default
             }
-        };
+        }.trim().to_owned();
 
         Ok(MsTtsMsgRequest {
             text: text_value,

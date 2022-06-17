@@ -16,17 +16,18 @@ use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use chrono::Utc;
 
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, OnceCell};
 use tokio::time::sleep;
 use tokio_native_tls::{native_tls, TlsStream};
 
-use tokio_tungstenite::tungstenite::handshake::client::Request;
+use tokio_tungstenite::tungstenite::handshake::client::{generate_key, Request};
 use tokio_tungstenite::tungstenite::http::{Method, Uri, Version};
 use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{client_async_with_config, WebSocketStream};
+use tokio_tungstenite::{client_async_with_config, tungstenite, WebSocketStream};
 
 use crate::utils::{binary_search, random_string}; // get_system_ca_config
 
@@ -322,6 +323,7 @@ pub(crate) async fn register_service() {
                                                 trace!("其他二进制类型: {} ", unsafe { String::from_utf8_unchecked(s.to_vec()) });
                                             }
                                         }
+                                        _ => {}
                                     }
                                 }
                                 Err(e) => {
@@ -352,38 +354,46 @@ pub(crate) async fn register_service() {
         trace!("存在websocket连接，继续处理");
 
         debug!("发送请求: {} | {:?}",request.request_id, request);
+        let create_time = Utc::now();
+        let time = format!("{:?}", create_time);
+
+        let mut msg1 = String::new();
+        msg1.push_str(format!("Path: synthesis.context\r\nX-RequestId: {}\r\nX-Timestamp: {}\r\nContent-Type: application/json", &request.request_id, &time).as_str());
+        msg1.push_str("\r\n\r\n{\"synthesis\":{\"audio\":{\"metadataOptions\":{\"bookmarkEnabled\":false,\"sentenceBoundaryEnabled\":false,\"visemeEnabled\":false,\"wordBoundaryEnabled\":false},\"outputFormat\":\"");
+        msg1.push_str(&request.quality);
+        msg1.push_str("\"},\"language\":{\"autoDetection\":false}}}");
+
+
+        let mut msg2 = String::new();
+        msg2.push_str(format!("Path:ssml\r\nX-RequestId:{}\r\nContent-Type:application/ssml+xml\r\n\r\n", &request.request_id).as_str());
+        msg2.push_str(format!("<speak xmlns=\"http://www.w3.org/2001/10/synthesis\" version=\"1.0\" xml:lang=\"en-US\"><voice name=\"{}\"><prosody rate=\"{}%\" pitch=\"{}%\">{}</prosody></voice></speak>",
+                              request.informant, request.rate, request.pitch, request.text).as_str());
+
+
+
+        /* 旧的
         let msg1 = String::from("Path:speech.config\r\nContent-Type:application/json;charset=utf-8\r\n\r\n{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"},\"language\":{\"autoDetection\":false}}}}\r\n");
 
         let msg2 = format!("Path:ssml\r\nX-RequestId:{}\r\nContent-Type:application/ssml+xml\r\n\r\n<speak xmlns=\"http://www.w3.org/2001/10/synthesis\" xmlns:mstts=\"http://www.w3.org/2001/mstts\" xmlns:emo=\"http://www.w3.org/2009/10/emotionml\" version=\"1.0\" xml:lang=\"zh-CN\"><voice name=\"{}\"><s /><mstts:express-as style=\"{}\"><prosody rate=\"{}%\" pitch=\"{}%\">{}</prosody></mstts:express-as><s /></voice></speak>",
-                           request.request_id, request.informant, request.style, request.rate, request.pitch, request.text);
+                           request.request_id, request.informant, request.style, request.rate, request.pitch, request.text);*/
+
         // 向 websocket 发送消息
-
-
         MS_TTS_DATA_CACHE.clone().lock().await.insert(request.request_id, Arc::new(Mutex::new(MsTtsCache {
             data: BytesMut::new(),
             reply: eb_msg.clone(),
             file_type: None,
         })));
-        // unsafe {
-        //     Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).insert(request.request_id, Arc::new(Mutex::new(MsTtsCache {
-        //         data: BytesMut::new(),
-        //         reply: eb_msg.clone(),
-        //         file_type: None,
-        //     })))
-        // };
-        // info!("consumer {} 7",id);
+
         {
             let jj = tx_socket.clone();
             let mut gg = jj.lock().await;
             let socket = gg.as_mut();
-            // if socket.is_some() {
-            //     let s = socket.unwrap();
-            //     s.send(Message::Text(msg1)).await.unwrap();
-            //     s.send(Message::Text(msg2)).await.unwrap();
-            // }
             if let Some(s) = socket {
+                debug!("synthesis.context: {}",&msg1);
                 s.send(Message::Text(msg1)).await.unwrap();
+                debug!("ssml: {}",&msg2);
                 s.send(Message::Text(msg2)).await.unwrap();
+
             }
         }
     }).await;
@@ -454,14 +464,19 @@ pub(crate) async fn new_websocket_by_select_server(
     let uri = uri.unwrap();
 
     let request_builder = Request::builder().uri(uri).method(Method::GET)
-        .header("Sec-webSocket-Extension", "permessage-deflate")
         .header("Cache-Control", "no-cache")
         .header("Pragma", "no-cache")
         .header("Accept", "*/*")
         .header("Accept-Encoding", "gzip, deflate, br")
         .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6")
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4884.0 Safari/537.36 Edg/100.0.1181.0")
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.5005.63 Safari/537.36 Edg/102.0.1245.39")
         .header("Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold")
+        .header("Host", "speech.platform.bing.com")
+        .header("Connection", "Upgrade")
+        .header("Upgrade", "websocket")
+        .header("Sec-WebSocket-Version", "13")
+        .header("Sec-WebSocket-Key", generate_key())
+        .header("Sec-webSocket-Extension", "permessage-deflate; client_max_window_bits")
         .version(Version::HTTP_11);
     let request = request_builder.body(());
     if let Err(e) = request {
