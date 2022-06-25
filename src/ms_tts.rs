@@ -297,7 +297,10 @@ pub(crate) async fn register_service() {
                                             }
                                         }
                                         Message::Binary(s) => {
-                                            if s.starts_with(&TAG_SOME_DATA_START) {
+                                            if s.starts_with(&TAG_NONE_DATA_START) {
+                                                let id = String::from_utf8(s[14..46].to_vec()).unwrap();
+                                                trace!("二进制响应体结束 TAG_NONE_DATA_START, {}",id);
+                                            } else {
                                                 let id = String::from_utf8(s[14..46].to_vec()).unwrap();
                                                 let mut body = BytesMut::from(s.as_slice());
                                                 let index = binary_search(&s, &TAG_BODY_SPLIT).unwrap();
@@ -316,12 +319,12 @@ pub(crate) async fn register_service() {
                                                 drop(cache);
                                                 // unsafe { Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).get_mut(&id).unwrap().lock().await.data.put(body) };
                                                 trace!("二进制响应体 ,{}",id);
-                                            } else if s.starts_with(&TAG_NONE_DATA_START) {
-                                                let id = String::from_utf8(s[14..46].to_vec()).unwrap();
-                                                trace!("二进制响应体结束 TAG_NONE_DATA_START, {}",id);
-                                            } else {
+
+
+
+                                            }/* else {
                                                 trace!("其他二进制类型: {} ", unsafe { String::from_utf8_unchecked(s.to_vec()) });
-                                            }
+                                            }*/
                                         }
                                         _ => {}
                                     }
