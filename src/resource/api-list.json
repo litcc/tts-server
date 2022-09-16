@@ -2,7 +2,7 @@
   {
     "name": "ms tts",
     "desc": "微软语音合成",
-    "url": "/ms-tts",
+    "url": "/api/tts/ms",
     "params": [
       {
         "index": 0,

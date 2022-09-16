@@ -1,149 +1,37 @@
-use crate::ServerArea;
 use bytes::{BufMut, Bytes, BytesMut};
 use clap::Parser;
 use event_bus::message::IMessage;
 use fancy_regex::Regex;
-use futures_util::stream::SplitSink;
-use futures_util::{SinkExt, StreamExt};
+use futures::stream::{SplitSink, SplitStream};
+use futures::{SinkExt, StreamExt};
 use itertools::Itertools;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::Lazy;
-use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
-use std::net::Ipv4Addr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use chrono::Utc;
-
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, OnceCell};
 use tokio::time::sleep;
-use tokio_native_tls::{native_tls, TlsStream};
-
-use tokio_tungstenite::tungstenite::handshake::client::{generate_key, Request};
-use tokio_tungstenite::tungstenite::http::{Method, Uri, Version};
-use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+use tokio_native_tls::TlsStream;
+use tokio_tungstenite::tungstenite::handshake::client::Request;
+use tokio_tungstenite::tungstenite::http::{Uri, Version};
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{client_async_with_config, tungstenite, WebSocketStream};
+use tokio_tungstenite::WebSocketStream;
 
-use crate::utils::{binary_search, random_string}; // get_system_ca_config
+use crate::utils::azure_api::{AzureApiEdgeFree, AzureApiGenerateXMML, AzureApiNewWebsocket, AzureApiPreviewFreeToken, MS_TTS_QUALITY_LIST, MsTtsMsgRequest, VoicesItem, VoicesList};
+use crate::utils::binary_search;
+use crate::AppArgs;
 
 // "Path:audio\r\n"
 pub(crate) static TAG_BODY_SPLIT: [u8; 12] = [80, 97, 116, 104, 58, 97, 117, 100, 105, 111, 13, 10];
-// �X-R
-pub(crate) static TAG_SOME_DATA_START: [u8; 2] = [0, 128];
 // gX-R
 pub(crate) static TAG_NONE_DATA_START: [u8; 2] = [0, 103];
 
 pub(crate) static MS_TTS_CONFIG: OnceCell<MsTtsConfig> = OnceCell::const_new();
-
-pub(crate) static MS_TTS_SERVER_CHINA_LIST: [&str; 7] = [
-    // 北京节点
-    "202.89.233.100",
-    "202.89.233.101",
-    "202.89.233.102",
-    "202.89.233.103",
-    "202.89.233.104",
-    // 国内其他地点
-    "47.95.21.44",
-    "182.61.148.24",
-    //	国内无法访问
-    // "171.117.98.148",
-    // "103.36.193.41",
-    // "159.75.112.15",
-    // "149.129.90.244",
-    // "111.229.238.112",
-];
-
-pub(crate) static MS_TTS_SERVER_CHINA_HK_LIST: [&str; 12] = [
-    // 北京节点
-    "149.129.121.248",
-    "103.200.112.245",
-    "47.90.51.125",
-    "61.239.177.5",
-    "149.129.88.238",
-    "103.68.61.91",
-    "47.75.141.93",
-    "34.96.186.48",
-    "47.240.87.168",
-    "47.57.114.186",
-    "150.109.51.247",
-    "20.205.113.91",
-];
-
-pub(crate) static MS_TTS_SERVER_CHINA_TW_LIST: [&str; 12] = [
-    "114.46.156.231",
-    "34.81.240.201",
-    "34.80.106.199",
-    "35.234.55.34",
-    "130.211.254.124",
-    "35.221.158.89",
-    "104.199.252.57",
-    "114.46.224.80",
-    "114.46.192.185",
-    "35.194.227.105",
-    "114.46.184.44",
-    "114.46.186.185",
-];
-
-pub(crate) static MS_TTS_QUALITY_LIST: [&str; 32] = [
-    "audio-16khz-128kbitrate-mono-mp3",
-    "audio-16khz-16bit-32kbps-mono-opus",
-    "audio-16khz-16kbps-mono-siren",
-    "audio-16khz-32kbitrate-mono-mp3",
-    "audio-16khz-64kbitrate-mono-mp3",
-    "audio-24khz-160kbitrate-mono-mp3",
-    "audio-24khz-16bit-24kbps-mono-opus",
-    "audio-24khz-16bit-48kbps-mono-opus",
-    "audio-24khz-48kbitrate-mono-mp3",
-    "audio-24khz-96kbitrate-mono-mp3	",
-    "audio-48khz-192kbitrate-mono-mp3",
-    "audio-48khz-96kbitrate-mono-mp3",
-    "ogg-16khz-16bit-mono-opus",
-    "ogg-24khz-16bit-mono-opus",
-    "ogg-48khz-16bit-mono-opus",
-    "raw-16khz-16bit-mono-pcm",
-    "raw-16khz-16bit-mono-truesilk",
-    "raw-24khz-16bit-mono-pcm",
-    "raw-24khz-16bit-mono-truesilk",
-    "raw-48khz-16bit-mono-pcm",
-    "raw-8khz-16bit-mono-pcm",
-    "raw-8khz-8bit-mono-alaw",
-    "raw-8khz-8bit-mono-mulaw",
-    "riff-16khz-16bit-mono-pcm",
-    // "riff-16khz-16kbps-mono-siren",/*弃用*/
-    "riff-24khz-16bit-mono-pcm",
-    "riff-48khz-16bit-mono-pcm",
-    "riff-8khz-16bit-mono-pcm",
-    "riff-8khz-8bit-mono-alaw",
-    "riff-8khz-8bit-mono-mulaw",
-    "webm-16khz-16bit-mono-opus",
-    "webm-24khz-16bit-24kbps-mono-opus",
-    "webm-24khz-16bit-mono-opus",
-];
-
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct MsTtsMsgRequest {
-    // 待生成文本
-    pub text: String,
-    // 请求id
-    pub request_id: String,
-    // 发音人
-    pub informant: String,
-    // 音频风格
-    pub style: String,
-    // 语速
-    pub rate: String,
-    // 音调
-    pub pitch: String,
-    // 音频格式
-    pub quality: String,
-    // text_replace_list:Vec<String>,
-    // phoneme_list:Vec<String>
-}
 
 impl MsTtsMsgRequest {
     #[inline]
@@ -205,399 +93,367 @@ impl MsTtsMsgResponse {
 
 type WebsocketRt = SplitSink<WebSocketStream<TlsStream<TcpStream>>, Message>;
 
-static SOCKET_TX: OnceCell<Arc<Mutex<Option<WebsocketRt>>>> = OnceCell::const_new();
-
-pub(crate) struct MsTtsCache {
-    pub(crate) data: BytesMut,
-    pub(crate) reply: IMessage,
-    pub(crate) file_type: Option<String>,
+pub struct MsTtsCache {
+    pub data: BytesMut,
+    pub reply: IMessage,
+    pub file_type: Option<String>,
 }
 
-// &'static mut HashMap<String, Mutex<MsTtsCache>>
-static MS_TTS_DATA_CACHE: Lazy<Arc<Mutex<HashMap<String, Arc<Mutex<MsTtsCache>>>>>> =
-    Lazy::new(|| {
-        let kk = HashMap::new();
-        Arc::new(Mutex::new(kk))
-    });
 
-static MS_TTS_GET_NEW: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
-
+///
+/// 微软 文本转语音接口注册服务
+#[allow(dead_code)]
 pub(crate) async fn register_service() {
     debug!("register_service");
 
-    crate::GLOBAL_EB.consumer("tts_ms", |fn_msg| async move {
-        let _id = random_string(5);
-        let eb_msg = fn_msg.msg.clone();
-        let eb = Arc::clone(&fn_msg.eb);
-        let ll = Bytes::from(eb_msg.body().await.as_bytes().expect("event_bus[ms-tts]: body is not bytes").to_vec());
-        let request = MsTtsMsgRequest::from_bytes(ll);
-        let tx_socket = Arc::clone(SOCKET_TX.get_or_init(|| async {
-            Arc::new(Mutex::new(None))
-        }).await);
+    let args = AppArgs::parse_macro();
+    if args.close_edge_free_api
+        && args.close_official_preview_api
+        && args.close_official_consume_api
+    {
+        error!("请最起码启用一个api");
+        std::process::exit(1);
+    }
 
-        if !MS_TTS_GET_NEW.load(Ordering::Relaxed) && !tx_socket.clone().lock().await.is_some() {
-            MS_TTS_GET_NEW.store(true, Ordering::Release);
-            debug!("websocket is not connected");
-            let mut result = new_websocket().await;
-            'outer: loop {
-                // 'outer:
-                trace!("进入循环，防止websocket连接失败");
-                let result_bool = result.is_ok();
+    // 注册 edge 免费接口的服务
+    if !args.close_edge_free_api {
+        /// edge 免费接口 socket 连接
+        static SOCKET_TX_EDGE_FREE: OnceCell<Arc<Mutex<Option<WebsocketRt>>>> =
+            OnceCell::const_new();
 
-                if result_bool {
-                    trace!("websocket连接成功");
-                    let (tx_tmp, rx_tmp) = result.unwrap().split();
-                    *tx_socket.clone().lock().await = Some(tx_tmp);
-                    let tx_tmp1 = Arc::clone(&tx_socket);
-                    trace!("启动消息处理线程");
-                    eb.runtime.spawn(async move {
-                        let tx_r = tx_tmp1.clone();
-                        let mut rx_r = rx_tmp;
-                        loop {
-                            let msg = rx_r.next().await.unwrap();
-                            match msg {
-                                Ok(m) => {
-                                    trace!("收到消息");
-                                    match m {
-                                        Message::Ping(s) => {
-                                            trace!("收到ping消息: {:?}", s);
-                                        }
-                                        Message::Pong(s) => {
-                                            trace!("收到pong消息: {:?}", s);
-                                        }
-                                        Message::Close(s) => {
-                                            debug!("被动断开连接: {:?}", s);
-                                            break;
-                                        }
-                                        Message::Text(s) => {
-                                            let id = s[12..44].to_string();
-                                            // info!("到消息: {}", id);
-                                            if let Some(_i) = s.find("Path:turn.start") {
-                                                // MS_TTS_DATA_CACHE.lock().await.insert(id, BytesMut::new());
-                                            } else if let Some(_i) = s.find("Path:turn.end") {
-                                                trace!("响应 {}， 结束", id);
-                                                let data = { MS_TTS_DATA_CACHE.clone().lock().await.remove(&id) };
-                                                if let Some(data) = data {
-                                                    debug!("结束请求: {}",id);
-                                                    let data = data.lock().await;
+        /// edge 免费接口 数据缓存
+        static MS_TTS_DATA_CACHE_EDGE_FREE: Lazy<
+            Arc<Mutex<HashMap<String, Arc<Mutex<MsTtsCache>>>>>,
+        > = Lazy::new(|| {
+            let kk = HashMap::new();
+            Arc::new(Mutex::new(kk))
+        });
+        /// edge 免费接口 新请求限制措施
+        static MS_TTS_GET_NEW_EDGE_FREE: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
 
-                                                    let body = MsTtsMsgResponse {
-                                                        request_id: id,
-                                                        data: data.data.to_vec().clone(),
-                                                        file_type: data.file_type.as_ref().unwrap().to_string(),
-                                                    };
-                                                    data.reply.reply(body.to_vec().into()).await;
-                                                    // eb_msg.reply(data.to_vec().into()).await;
-                                                } else {
-                                                    trace!("响应 不存在回复");
-                                                }
-                                                // File::create(format!("tmp/{}.mp3", id)).await
-                                                //     .unwrap().write_all(&cache.get(&id).unwrap().to_vec()).await.unwrap();
-                                                // ;
-                                            }
-                                        }
-                                        Message::Binary(s) => {
-                                            if s.starts_with(&TAG_NONE_DATA_START) {
-                                                let id = String::from_utf8(s[14..46].to_vec()).unwrap();
-                                                trace!("二进制响应体结束 TAG_NONE_DATA_START, {}",id);
-                                            } else {
-                                                let id = String::from_utf8(s[14..46].to_vec()).unwrap();
-                                                let mut body = BytesMut::from(s.as_slice());
-                                                let index = binary_search(&s, &TAG_BODY_SPLIT).unwrap();
-                                                let head = body.split_to(index + TAG_BODY_SPLIT.len());
-                                                let cache = { MS_TTS_DATA_CACHE.clone().lock().await.get(&id).unwrap().clone() };
-                                                let mut cache_map = cache.lock().await;
-                                                cache_map.data.put(body);
-                                                if cache_map.file_type.is_none() {
-                                                    let head = String::from_utf8(head.to_vec()[2..head.len()].to_vec()).unwrap();
-                                                    let head_list = head.split("\r\n").collect::<Vec<&str>>();
-                                                    let content_type = head_list[1].to_string().split(":").collect::<Vec<&str>>()[1].to_string();
-                                                    trace!("content_type: {}", content_type);
-                                                    cache_map.file_type = Some(content_type);
-                                                }
-                                                drop(cache_map);
-                                                drop(cache);
-                                                // unsafe { Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).get_mut(&id).unwrap().lock().await.data.put(body) };
-                                                trace!("二进制响应体 ,{}",id);
+        let kk_s = get_ms_tts_config().await.unwrap();
+        MS_TTS_CONFIG.get_or_init(move || async { kk_s }).await;
 
+        crate::GLOBAL_EB
+            .consumer("tts_ms_edge_free", |fn_msg| async move {
+                let eb_msg = fn_msg.msg.clone();
+                let eb = Arc::clone(&fn_msg.eb);
+                let ll = Bytes::from(
+                    eb_msg
+                        .body()
+                        .await
+                        .as_bytes()
+                        .expect("event_bus[ms-tts]: body is not bytes")
+                        .to_vec(),
+                );
+                let request = MsTtsMsgRequest::from_bytes(ll);
+                let tx_socket = Arc::clone(
+                    SOCKET_TX_EDGE_FREE
+                        .get_or_init(|| async { Arc::new(Mutex::new(None)) })
+                        .await,
+                );
 
+                if !MS_TTS_GET_NEW_EDGE_FREE.load(Ordering::Relaxed)
+                    && !tx_socket.clone().lock().await.is_some()
+                {
+                    MS_TTS_GET_NEW_EDGE_FREE.store(true, Ordering::Release);
+                    debug!("websocket is not connected");
+                    let mut result = AzureApiEdgeFree::new().lock().await.get_connection().await;
+                    'outer: loop {
+                        // 'outer:
+                        trace!("进入循环，防止websocket连接失败");
+                        let result_bool = result.is_ok();
 
-                                            }/* else {
-                                                trace!("其他二进制类型: {} ", unsafe { String::from_utf8_unchecked(s.to_vec()) });
-                                            }*/
-                                        }
-                                        _ => {}
-                                    }
-                                }
-                                Err(e) => {
-                                    // trace!("收到错误消息:{:?}", e);
-                                    debug!("收到错误消息，被动断开连接: {:?}", e);
-                                    // websocket 错误的话就会断开连接
-                                    break;
-                                }
-                            }
+                        if result_bool {
+                            trace!("websocket连接成功");
+                            let (tx_tmp, rx_tmp) = result.unwrap().split();
+                            *tx_socket.clone().lock().await = Some(tx_tmp);
+                            let tx_tmp1 = Arc::clone(&tx_socket);
+                            trace!("启动消息处理线程");
+                            eb.runtime.spawn(async move {
+                                process_response_body(
+                                    rx_tmp,
+                                    tx_tmp1,
+                                    MS_TTS_DATA_CACHE_EDGE_FREE.clone(),
+                                )
+                                .await;
+                            });
+                            trace!("准备跳出循环");
+                            break 'outer;
+                        } else {
+                            trace!("reconnection websocket");
+                            sleep(Duration::from_secs(1)).await;
+                            result = AzureApiEdgeFree::new().lock().await.get_connection().await;
                         }
-                        *tx_r.lock().await = None;
-                    });
-                    trace!("准备跳出循环");
-                    break 'outer;
+                    }
+                    trace!("循环已跳出");
+                    MS_TTS_GET_NEW_EDGE_FREE.store(false, Ordering::Release)
                 } else {
-                    trace!("reconnection websocket");
-                    sleep(Duration::from_secs(1)).await;
-                    result = new_websocket().await;
+                    while MS_TTS_GET_NEW_EDGE_FREE.load(Ordering::Relaxed)
+                        || !tx_socket.clone().lock().await.is_some()
+                    {
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                    }
+                }
+                trace!("存在websocket连接，继续处理");
+                let request_id = request.request_id.clone();
+                debug!("发送请求: {} | {:?}", request.request_id, request);
+
+                let xmml = AzureApiEdgeFree::new()
+                    .lock()
+                    .await
+                    .generate_xmml(request)
+                    .await
+                    .expect("generate_xmml 错误");
+
+                // 向 websocket 发送消息
+                MS_TTS_DATA_CACHE_EDGE_FREE.clone().lock().await.insert(
+                    request_id,
+                    Arc::new(Mutex::new(MsTtsCache {
+                        data: BytesMut::new(),
+                        reply: eb_msg.clone(),
+                        file_type: None,
+                    })),
+                );
+
+                let mut gg = tx_socket.lock().await;
+                let socket = gg.as_mut();
+                if let Some(s) = socket {
+                    for i in xmml {
+                        debug!("xmml data: {}", &i);
+                        s.send(Message::Text(i)).await.unwrap();
+                    }
+                    drop(gg)
+                }
+            })
+            .await;
+    }
+
+    // 注册 官网预览api 服务
+    if !args.close_official_preview_api {
+        /// 官网 免费预览接口 socket 连接
+        static SOCKET_TX_OFFICIAL_PREVIEW: OnceCell<Arc<Mutex<Option<WebsocketRt>>>> =
+            OnceCell::const_new();
+
+        /// 官网 免费预览接口 数据缓存
+        static MS_TTS_DATA_CACHE_OFFICIAL_PREVIEW: Lazy<
+            Arc<Mutex<HashMap<String, Arc<Mutex<MsTtsCache>>>>>,
+        > = Lazy::new(|| {
+            let kk = HashMap::new();
+            Arc::new(Mutex::new(kk))
+        });
+
+        /// 官网 免费预览接口 新请求限制措施
+        static MS_TTS_GET_NEW_OFFICIAL_PREVIEW: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
+
+
+        // const info: Arc<Mutex<AzureApiPreviewFreeToken>> = Arc::new(Mutex::new(AzureApiPreviewFreeToken::new()));
+        // let clone_info = info.clone();
+        crate::GLOBAL_EB.consumer("tts_ms_official_preview", |fn_msg| async move {
+            let eb_msg = fn_msg.msg.clone();
+            let eb = Arc::clone(&fn_msg.eb);
+            let ll = Bytes::from(eb_msg.body().await.as_bytes().expect("event_bus[tts_ms_official_preview]: body is not bytes").to_vec());
+            let request = MsTtsMsgRequest::from_bytes(ll);
+            let tx_socket = Arc::clone(SOCKET_TX_OFFICIAL_PREVIEW.get_or_init(|| async {
+                Arc::new(Mutex::new(None))
+            }).await);
+
+            if !MS_TTS_GET_NEW_OFFICIAL_PREVIEW.load(Ordering::Relaxed) && !tx_socket.clone().lock().await.is_some() {
+                MS_TTS_GET_NEW_OFFICIAL_PREVIEW.store(true, Ordering::Release);
+                debug!("websocket is not connected");
+                // let mut info_mut = ;
+                let mut result = AzureApiPreviewFreeToken::new().lock().await.get_connection().await;
+                // drop(info_mut);
+                // let mut result = new_websocket_edge_free().await;
+                'outer: loop {
+                    // 'outer:
+                    trace!("进入循环，防止websocket连接失败");
+                    let result_bool = result.is_ok();
+
+                    if result_bool {
+                        trace!("websocket连接成功");
+                        let (tx_tmp, rx_tmp) = result.unwrap().split();
+                        *tx_socket.clone().lock().await = Some(tx_tmp);
+                        let tx_tmp1 = Arc::clone(&tx_socket);
+                        trace!("启动消息处理线程");
+                        eb.runtime.spawn(async move {
+                            process_response_body(rx_tmp, tx_tmp1, MS_TTS_DATA_CACHE_OFFICIAL_PREVIEW.clone()).await;
+                        });
+                        trace!("准备跳出循环");
+                        break 'outer;
+                    } else {
+                        trace!("reconnection websocket");
+                        sleep(Duration::from_secs(1)).await;
+                        result = AzureApiPreviewFreeToken::new().lock().await.get_connection().await;
+                    }
+                }
+                trace!("循环已跳出");
+                MS_TTS_GET_NEW_OFFICIAL_PREVIEW.store(false, Ordering::Release)
+            } else {
+                while MS_TTS_GET_NEW_OFFICIAL_PREVIEW.load(Ordering::Relaxed) || !tx_socket.clone().lock().await.is_some() {
+                    tokio::time::sleep(Duration::from_millis(200)).await;
                 }
             }
-            trace!("循环已跳出");
-            MS_TTS_GET_NEW.store(false, Ordering::Release)
-        } else {
-            while MS_TTS_GET_NEW.load(Ordering::Relaxed) || !tx_socket.clone().lock().await.is_some() {
-                tokio::time::sleep(Duration::from_millis(200)).await;
-            }
-        }
-        trace!("存在websocket连接，继续处理");
+            trace!("存在websocket连接，继续处理");
 
-        debug!("发送请求: {} | {:?}",request.request_id, request);
-        let create_time = Utc::now();
-        let time = format!("{:?}", create_time);
+            let request_id = request.request_id.clone();
+            debug!("发送请求: {} | {:?}", request.request_id, request);
 
-        let mut msg1 = String::new();
-        msg1.push_str(format!("Path: synthesis.context\r\nX-RequestId: {}\r\nX-Timestamp: {}\r\nContent-Type: application/json", &request.request_id, &time).as_str());
-        msg1.push_str("\r\n\r\n{\"synthesis\":{\"audio\":{\"metadataOptions\":{\"bookmarkEnabled\":false,\"sentenceBoundaryEnabled\":false,\"visemeEnabled\":false,\"wordBoundaryEnabled\":false},\"outputFormat\":\"");
-        msg1.push_str(&request.quality);
-        msg1.push_str("\"},\"language\":{\"autoDetection\":false}}}");
+            let xmml = AzureApiPreviewFreeToken::new()
+                .lock()
+                .await
+                .generate_xmml(request)
+                .await
+                .expect("generate_xmml 错误");
 
+            // 向 websocket 发送消息
+            MS_TTS_DATA_CACHE_OFFICIAL_PREVIEW.clone().lock().await.insert(
+                request_id,
+                Arc::new(Mutex::new(MsTtsCache {
+                    data: BytesMut::new(),
+                    reply: eb_msg.clone(),
+                    file_type: None,
+                })),
+            );
 
-        let mut msg2 = String::new();
-        msg2.push_str(format!("Path:ssml\r\nX-RequestId:{}\r\nContent-Type:application/ssml+xml\r\n\r\n", &request.request_id).as_str());
-        msg2.push_str(format!("<speak xmlns=\"http://www.w3.org/2001/10/synthesis\" version=\"1.0\" xml:lang=\"en-US\"><voice name=\"{}\"><prosody rate=\"{}%\" pitch=\"{}%\">{}</prosody></voice></speak>",
-                              request.informant, request.rate, request.pitch, request.text).as_str());
-
-
-
-        /* 旧的
-        let msg1 = String::from("Path:speech.config\r\nContent-Type:application/json;charset=utf-8\r\n\r\n{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"},\"language\":{\"autoDetection\":false}}}}\r\n");
-
-        let msg2 = format!("Path:ssml\r\nX-RequestId:{}\r\nContent-Type:application/ssml+xml\r\n\r\n<speak xmlns=\"http://www.w3.org/2001/10/synthesis\" xmlns:mstts=\"http://www.w3.org/2001/mstts\" xmlns:emo=\"http://www.w3.org/2009/10/emotionml\" version=\"1.0\" xml:lang=\"zh-CN\"><voice name=\"{}\"><s /><mstts:express-as style=\"{}\"><prosody rate=\"{}%\" pitch=\"{}%\">{}</prosody></mstts:express-as><s /></voice></speak>",
-                           request.request_id, request.informant, request.style, request.rate, request.pitch, request.text);*/
-
-        // 向 websocket 发送消息
-        MS_TTS_DATA_CACHE.clone().lock().await.insert(request.request_id, Arc::new(Mutex::new(MsTtsCache {
-            data: BytesMut::new(),
-            reply: eb_msg.clone(),
-            file_type: None,
-        })));
-
-        {
-            let jj = tx_socket.clone();
-            let mut gg = jj.lock().await;
+            let mut gg = tx_socket.lock().await;
             let socket = gg.as_mut();
             if let Some(s) = socket {
-                debug!("synthesis.context: {}",&msg1);
-                s.send(Message::Text(msg1)).await.unwrap();
-                debug!("ssml: {}",&msg2);
-                s.send(Message::Text(msg2)).await.unwrap();
+                for i in xmml {
+                    debug!("xmml data: {}", &i);
+                    s.send(Message::Text(i)).await.unwrap();
+                }
+                drop(gg)
+            }
 
+        }).await;
+    }
+
+    // 注册 官网ApiKey 调用服务
+    if !args.close_official_consume_api {
+
+        /// 官网 免费预览接口 socket 连接
+        static SOCKET_TX_OFFICIAL_SUBSCRIBE: OnceCell<Arc<Mutex<Option<WebsocketRt>>>> =
+            OnceCell::const_new();
+
+        /// 官网 免费预览接口 数据缓存
+        static MS_TTS_DATA_CACHE_OFFICIAL_SUBSCRIBE: Lazy<
+            Arc<Mutex<HashMap<String, Arc<Mutex<MsTtsCache>>>>>,
+        > = Lazy::new(|| {
+            let kk = HashMap::new();
+            Arc::new(Mutex::new(kk))
+        });
+
+        /// 官网 免费预览接口 新请求限制措施
+        static MS_TTS_GET_NEW_OFFICIAL_SUBSCRIBE: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
+
+
+
+        crate::GLOBAL_EB
+            .consumer("tts_ms_api_key", |fn_msg| async move {
+
+
+            })
+            .await;
+    }
+}
+
+/// 处理微软api 响应
+#[allow(dead_code)]
+async fn process_response_body(
+    rx_r: SplitStream<WebSocketStream<TlsStream<TcpStream>>>,
+    tx_r: Arc<Mutex<Option<WebsocketRt>>>,
+    cache_db: Arc<Mutex<HashMap<String, Arc<Mutex<MsTtsCache>>>>>,
+) {
+    let mut rx_r = rx_r;
+    loop {
+        let msg = rx_r.next().await.unwrap();
+        match msg {
+            Ok(m) => {
+                trace!("收到消息");
+                match m {
+                    Message::Ping(s) => {
+                        trace!("收到ping消息: {:?}",s);
+                    }
+                    Message::Pong(s) => {
+                        trace!("收到pong消息: {:?}",s);
+                    }
+                    Message::Close(s) => {
+                        debug!("被动断开连接: {:?}", s);
+                        break;
+                    }
+                    Message::Text(s) => {
+                        let id = s[12..44].to_string();
+                        // info!("到消息: {}", id);
+                        if let Some(_i) = s.find("Path:turn.start") {
+
+                        } else if let Some(_i) = s.find("Path:turn.end") {
+                            trace!("响应 {}， 结束", id);
+                            let data = { cache_db.lock().await.remove(&id) };
+                            if let Some(data) = data {
+                                debug!("结束请求: {}", id);
+                                let data = data.lock().await;
+
+                                let body = MsTtsMsgResponse {
+                                    request_id: id,
+                                    data: data.data.to_vec().clone(),
+                                    file_type: data.file_type.as_ref().unwrap().to_string(),
+                                };
+                                data.reply.reply(body.to_vec().into()).await;
+                                // eb_msg.reply(data.to_vec().into()).await;
+                            } else {
+                                trace!("响应 不存在回复");
+                            }
+                            // 测试代码
+                            // File::create(format!("tmp/{}.mp3", id)).await
+                            //     .unwrap().write_all(&cache.get(&id).unwrap().to_vec()).await.unwrap();
+                            // ;
+                        }
+                    }
+                    Message::Binary(s) => {
+                        if s.starts_with(&TAG_NONE_DATA_START) {
+                            let id = String::from_utf8(s[14..46].to_vec()).unwrap();
+                            trace!("二进制响应体结束 TAG_NONE_DATA_START, {}", id);
+                        } else {
+                            let id = String::from_utf8(s[14..46].to_vec()).unwrap();
+                            let mut body = BytesMut::from(s.as_slice());
+                            let index = binary_search(&s, &TAG_BODY_SPLIT).unwrap();
+                            let head = body.split_to(index + TAG_BODY_SPLIT.len());
+                            let cache = { cache_db.lock().await.get(&id).unwrap().clone() };
+                            let mut cache_map = cache.lock().await;
+                            cache_map.data.put(body);
+                            if cache_map.file_type.is_none() {
+                                let head = String::from_utf8(head.to_vec()[2..head.len()].to_vec())
+                                    .unwrap();
+                                let head_list = head.split("\r\n").collect::<Vec<&str>>();
+                                let content_type =
+                                    head_list[1].to_string().split(":").collect::<Vec<&str>>()[1]
+                                        .to_string();
+                                trace!("content_type: {}", content_type);
+                                cache_map.file_type = Some(content_type);
+                            }
+                            drop(cache_map);
+                            drop(cache);
+                            // unsafe { Arc::get_mut_unchecked(&mut MS_TTS_DATA_CACHE.clone()).get_mut(&id).unwrap().lock().await.data.put(body) };
+                            trace!("二进制响应体 ,{}", id);
+                        } /* else {
+                              trace!("其他二进制类型: {} ", unsafe { String::from_utf8_unchecked(s.to_vec()) });
+                          }*/
+                    }
+                    _ => {
+
+                    }
+                }
+            }
+            Err(e) => {
+                // trace!("收到错误消息:{:?}", e);
+                debug!("收到错误消息，被动断开连接: {:?}", e);
+                // websocket 错误的话就会断开连接
+                break;
             }
         }
-    }).await;
-
-    let kk_s = get_ms_tts_config().await.unwrap();
-
-    MS_TTS_CONFIG.get_or_init(move || async { kk_s }).await;
-}
-
-static MS_TTS_TOKEN: Lazy<String> = Lazy::new(|| {
-    String::from_utf8(
-        [
-            54, 65, 53, 65, 65, 49, 68, 52, 69, 65, 70, 70, 52, 69, 57, 70, 66, 51, 55, 69, 50, 51,
-            68, 54, 56, 52, 57, 49, 68, 54, 70, 52,
-        ]
-        .to_vec(),
-    )
-    .unwrap()
-});
-
-///
-/// 获取新的隧道连接
-pub(crate) async fn new_websocket() -> Result<WebSocketStream<TlsStream<TcpStream>>, String> {
-    let args: crate::AppArgs = crate::AppArgs::parse();
-    match args.server_area {
-        ServerArea::Default => {
-            info!("连接至官方服务器");
-            new_websocket_by_select_server(None).await
-            // new_websocket_by_select_server(Some("171.117.98.148")).await
-        }
-        ServerArea::China => {
-            info!("连接至内陆服务器");
-            let select = rand::thread_rng().gen_range(0..MS_TTS_SERVER_CHINA_LIST.len());
-            new_websocket_by_select_server(Some(MS_TTS_SERVER_CHINA_LIST.get(select).unwrap()))
-                .await
-        }
-        ServerArea::ChinaHK => {
-            info!("连接至香港服务器");
-            let select = rand::thread_rng().gen_range(0..MS_TTS_SERVER_CHINA_HK_LIST.len());
-            new_websocket_by_select_server(Some(MS_TTS_SERVER_CHINA_HK_LIST.get(select).unwrap()))
-                .await
-        }
-        ServerArea::ChinaTW => {
-            info!("连接至台湾服务器");
-            let select = rand::thread_rng().gen_range(0..MS_TTS_SERVER_CHINA_TW_LIST.len());
-            new_websocket_by_select_server(Some(MS_TTS_SERVER_CHINA_TW_LIST.get(select).unwrap()))
-                .await
-        }
     }
-}
-
-pub(crate) async fn new_websocket_by_select_server(
-    server: Option<&str>,
-) -> Result<WebSocketStream<TlsStream<TcpStream>>, String> {
-    let connect_id = random_string(32);
-    let uri = Uri::builder()
-        .scheme("wss")
-        .authority("speech.platform.bing.com")
-        .path_and_query(format!(
-            "/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken={}&ConnectionId={}",
-            MS_TTS_TOKEN.as_str(),
-            &connect_id
-        ))
-        .build();
-    if let Err(e) = uri {
-        return Err(format!("uri 构建错误 {:?}", e));
-    }
-    let uri = uri.unwrap();
-
-    let request_builder = Request::builder().uri(uri).method(Method::GET)
-        .header("Cache-Control", "no-cache")
-        .header("Pragma", "no-cache")
-        .header("Accept", "*/*")
-        .header("Accept-Encoding", "gzip, deflate, br")
-        .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6")
-        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.5005.63 Safari/537.36 Edg/102.0.1245.39")
-        .header("Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold")
-        .header("Host", "speech.platform.bing.com")
-        .header("Connection", "Upgrade")
-        .header("Upgrade", "websocket")
-        .header("Sec-WebSocket-Version", "13")
-        .header("Sec-WebSocket-Key", generate_key())
-        .header("Sec-webSocket-Extension", "permessage-deflate; client_max_window_bits")
-        .version(Version::HTTP_11);
-    let request = request_builder.body(());
-    if let Err(e) = request {
-        return Err(format!("request_builder 构建错误 {:?}", e));
-    }
-    let request = request.unwrap();
-
-    // let config = get_system_ca_config();
-    // let config = TlsConnector::from(Arc::new(config));
-    // let domain = ServerName::try_from("speech.platform.bing.com");
-
-    // if let Err(e) = domain {
-    //     return Err(format!("dns解析错误 speech.platform.bing.com {:?}", e));
-    // }
-    // let domain = domain.unwrap();
-    let domain = "speech.platform.bing.com";
-
-    // let jj = native_tls::TlsConnector::new().unwrap();
-    let jj = native_tls::TlsConnector::builder()
-        .use_sni(false)
-        .build()
-        .unwrap();
-
-    let config = tokio_native_tls::TlsConnector::from(jj);
-
-    let sock = match server {
-        Some(s) => {
-            info!("连接至 {:?}", s);
-
-            let kk: Vec<_> = s.split(".").map(|x| x.parse::<u8>().unwrap()).collect();
-            TcpStream::connect((
-                Ipv4Addr::new(
-                    kk.get(0).unwrap().clone(),
-                    kk.get(1).unwrap().clone(),
-                    kk.get(2).unwrap().clone(),
-                    kk.get(3).unwrap().clone(),
-                ),
-                443,
-            ))
-            .await
-        }
-        None => {
-            info!("连接至 speech.platform.bing.com");
-            TcpStream::connect("speech.platform.bing.com:443").await
-        }
-    };
-
-    if let Err(e) = sock {
-        return Err(format!(
-            "连接到微软服务器发生异常，tcp握手失败! 请检查网络! {:?}",
-            e
-        ));
-    }
-    let sock = sock.unwrap();
-
-    let tsl_stream = config.connect(domain, sock).await;
-
-    if let Err(e) = tsl_stream {
-        error!("{:?}", e);
-        return Err(format!("tsl握手失败! {}", e));
-    }
-    let tsl_stream = tsl_stream.unwrap();
-
-    let websocket = client_async_with_config(
-        request,
-        tsl_stream,
-        Some(WebSocketConfig {
-            max_send_queue: None,
-            max_message_size: None,
-            max_frame_size: None,
-            accept_unmasked_frames: false,
-        }),
-    )
-    .await;
-
-    return match websocket {
-        Ok(_websocket) => {
-            trace!("websocket 握手成功");
-            Ok(_websocket.0)
-        }
-        Err(e2) => Err(format!("websocket 握手失败! {:?}", e2)),
-    };
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct VoicesItem {
-    #[serde(rename = "Name")]
-    pub name: String,
-    #[serde(rename = "DisplayName")]
-    pub display_name: String,
-    #[serde(rename = "LocalName")]
-    pub local_name: String,
-    #[serde(rename = "ShortName")]
-    pub short_name: String,
-    #[serde(rename = "Gender")]
-    pub gender: String,
-    #[serde(rename = "Locale")]
-    pub locale: String,
-    #[serde(rename = "LocaleName")]
-    pub locale_name: String,
-    #[serde(rename = "StyleList", skip_serializing_if = "Option::is_none")]
-    pub style_list: Option<Vec<String>>,
-    #[serde(rename = "SampleRateHertz")]
-    pub sample_rate_hertz: String,
-    #[serde(rename = "VoiceType")]
-    pub voice_type: String,
-    #[serde(rename = "Status")]
-    pub status: String,
-    #[serde(rename = "RolePlayList", skip_serializing_if = "Option::is_none")]
-    pub role_play_list: Option<Vec<String>>,
-}
-
-#[derive(Debug)]
-pub struct VoicesList {
-    pub voices_name_list: HashSet<String>,
-    pub raw_data: Vec<Arc<VoicesItem>>,
-    pub by_voices_name_map: HashMap<String, Arc<VoicesItem>>,
-    pub by_locale_map: HashMap<String, Vec<Arc<VoicesItem>>>,
+    *tx_r.lock().await = None;
 }
 
 #[derive(Debug)]
@@ -607,9 +463,11 @@ pub struct MsTtsConfig {
 }
 
 // 空白音频
+#[allow(dead_code)]
 pub(crate) const BLANK_MUSIC_FILE: &'static [u8] = include_bytes!("resource/blank.mp3");
 
 // 发音人配置
+#[allow(dead_code)]
 pub(crate) const SPEAKERS_LIST_FILE: &'static [u8] = include_bytes!("resource/voices_list.json");
 
 ///
@@ -695,7 +553,7 @@ pub(crate) async fn get_ms_tts_config() -> Option<MsTtsConfig> {
 
     let tmp_list_1: Vec<VoicesItem> = serde_json::from_str(&config_json_text).unwrap();
 
-    trace!("长度:{}", tmp_list_1.len());
+    trace!("长度: {}", tmp_list_1.len());
 
     let mut raw_data: Vec<Arc<VoicesItem>> = Vec::new();
     let mut voices_name_list: HashSet<String> = HashSet::new();
