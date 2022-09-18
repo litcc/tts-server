@@ -5,11 +5,13 @@ use chrono::{Duration, TimeZone, Utc};
 use event_bus::async_utils::BoxFutureSync;
 use futures::SinkExt;
 use itertools::Itertools;
-use log::{error, info, trace};
+use log::{error, info, trace, warn};
 use once_cell::sync::OnceCell;
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use tokio::net::TcpStream;
@@ -223,7 +225,6 @@ pub(crate) static MS_TTS_QUALITY_LIST: [&str; 32] = [
 ];
 
 
-
 ///
 /// 微软认证
 pub trait AzureAuthSubscription {
@@ -264,6 +265,61 @@ pub trait AzureApiGenerateXMML {
     ) -> BoxFutureSync<Result<Vec<String>, TTSServerError>>;
 }
 
+/// Azure 认证 Key
+#[derive(PartialEq, Debug)]
+pub struct AzureSubscribeKey(
+    /// 订阅key
+    pub String,
+    /// 地域
+    pub String
+);
+
+impl AzureSubscribeKey {
+    pub fn hash_str(&self) -> String {
+        let mut hasher = DefaultHasher::new();
+        self.hash(&mut hasher);
+        format!("{:x}", hasher.finish())
+    }
+
+
+    pub fn from(list: &Vec<String>) -> Vec<Self> {
+        let mut k_list = Vec::new();
+        for i in list.iter() {
+            let item = AzureSubscribeKey::try_from(i.as_str());
+            if let Ok(d) = item {
+                k_list.push(d)
+            }
+        }
+        k_list
+    }
+}
+
+
+impl TryFrom<&str> for AzureSubscribeKey {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let l: Vec<_> = value.split(',').collect();
+        if l.len() != 2 {
+            let err = anyhow::Error::msg("错误的订阅字符串, 请检查订阅key参数是否符合要求".to_owned());
+            warn!("{:?}",err);
+            return Err(err);
+        }
+        let key = l.get(0).unwrap().to_string();
+        let region = l.get(1).unwrap().to_string();
+        Ok(AzureSubscribeKey(key, region))
+    }
+}
+
+
+impl Hash for AzureSubscribeKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+        self.1.hash(state);
+    }
+}
+
+
 /// 生成 xmml 的数据
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct MsTtsMsgRequest {
@@ -281,6 +337,14 @@ pub struct MsTtsMsgRequest {
     pub pitch: String,
     // 音频格式
     pub quality: String,
+
+    // 使用订阅 API 时可用传递 自定义订阅 key，以及自定义订阅地区
+    #[serde(default)]
+    pub subscribe_key: Option<String>,
+    #[serde(default)]
+    pub region: Option<String>,
+
+
     // 以前java版本支持的功能，目前没时间支持
     // text_replace_list:Vec<String>,
     // phoneme_list:Vec<String>
@@ -318,7 +382,6 @@ impl AzureApiSubscribeToken {
     }
 
     /// 实例化付费版 Api key
-    #[allow(dead_code)]
     #[allow(dead_code)]
     pub fn new(region: AzureApiRegionIdentifier, subscription_key: &str) -> Self {
         AzureApiSubscribeToken {
@@ -449,6 +512,12 @@ impl AzureApiSubscribeToken {
 
         Ok(websocket.0)
     }
+
+    // 以后的版本可能实现的功能，当拥有多个 api时，支持使用负载均衡处理，超过或接近免费额度则更换api
+    // pub async fn get_free_quota(self){
+    //     // https://management.azure.com/subscriptions/{subscription-id}/resourceGroups/{resource-group-name}/providers/{resource-provider-namespace}/{resource-type}/{resource-name}/providers/microsoft.insights/metrics?metricnames={metric}&timespan={starttime/endtime}&$filter={filter}&resultType=metadata&api-version={apiVersion}
+    // }
+
 }
 
 ///

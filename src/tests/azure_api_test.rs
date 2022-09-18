@@ -1,5 +1,4 @@
-use std::time::Duration;
-use log::{info, LevelFilter};
+use log::{error, info, LevelFilter};
 use crate::AppArgs;
 use crate::utils::azure_api::{AzureApiEdgeFree, AzureApiNewWebsocket, AzureApiPreviewFreeToken, AzureApiRegionIdentifier, AzureApiSubscribeToken, AzureAuthKey};
 use crate::utils::log::init_test_log;
@@ -10,8 +9,15 @@ use crate::utils::log::init_test_log;
 #[tokio::test]
 async fn test_azure_api_subscribe_create_oauth_token() {
     init_test_log(LevelFilter::Debug);
-    let region = std::env::var("REGION").unwrap();
-    let subscription_key = std::env::var("SUBSCRIPTION").unwrap();
+    let region = std::env::var("REGION");
+    let subscription_key = std::env::var("SUBSCRIPTION");
+
+    if region.is_err() || subscription_key.is_err() {
+        error!("未找到订阅key，跳过测试");
+        std::process::exit(1);
+    }
+    let region = region.unwrap();
+    let subscription_key = subscription_key.unwrap();
     let mut kk = AzureApiSubscribeToken::new(AzureApiRegionIdentifier::from(&region).unwrap(), &subscription_key);
     let oauth = kk.get_oauth_token().await;
     info!("oauth: \n{:?}",oauth);

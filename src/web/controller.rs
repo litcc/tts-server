@@ -226,6 +226,8 @@ impl MsTtsMsgRequestJson {
             rate: rate_value,
             pitch: pitch_value,
             quality: quality_value,
+            subscribe_key: None,
+            region: None
         })
     }
 }

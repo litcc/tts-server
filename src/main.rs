@@ -31,13 +31,8 @@ pub(crate) static GLOBAL_EB: Lazy<Arc<EventBus<VertxMessage>>> = Lazy::new(|| {
 // #[tokio::main]
 // async
 async fn main_async() -> Result<()> {
-
-
-    info!("test");
-
     let args = AppArgs::parse_macro();
-    // info!("test2");
-    info!("{:#?}",args);
+    debug!("程序参数: {:#?}",args);
     /*if args.show_quality_list {
         println!(
             "当前可使用的音频参数有: (注意：Edge免费接口可能个别音频参数无法使用，是正常情况，是因为微软不允许滥用！) \n{:?}",
@@ -58,13 +53,13 @@ async fn main_async() -> Result<()> {
                 .voices_name_list
         );
         std::process::exit(0);
-    }
+    }*/
     //
     info!("准备启动，程序参数: {:?}", args);
     GLOBAL_EB.start().await;
     ms_tts::register_service().await;
     web::register_service(args.listen_address.clone(), args.listen_port.clone()).await;
-    info!("谢谢使用，希望能收到您对软件的看法和建议！");*/
+    info!("谢谢使用，希望能收到您对软件的看法和建议！");
 
 
     // runtime.block_on(async move {

@@ -17,12 +17,14 @@ use tokio::net::TcpStream;
 use tokio::sync::{Mutex, OnceCell};
 use tokio::time::sleep;
 use tokio_native_tls::TlsStream;
-use tokio_tungstenite::tungstenite::handshake::client::Request;
-use tokio_tungstenite::tungstenite::http::{Uri, Version};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::WebSocketStream;
 
-use crate::utils::azure_api::{AzureApiEdgeFree, AzureApiGenerateXMML, AzureApiNewWebsocket, AzureApiPreviewFreeToken, MS_TTS_QUALITY_LIST, MsTtsMsgRequest, VoicesItem, VoicesList};
+use crate::utils::azure_api::{
+    AzureApiEdgeFree, AzureApiGenerateXMML, AzureApiNewWebsocket, AzureApiPreviewFreeToken,
+    AzureApiRegionIdentifier, AzureApiSpeakerList, AzureApiSubscribeToken, AzureSubscribeKey,
+    MsTtsMsgRequest, VoicesItem, VoicesList, MS_TTS_QUALITY_LIST,
+};
 use crate::utils::binary_search;
 use crate::AppArgs;
 
@@ -99,6 +101,15 @@ pub struct MsTtsCache {
     pub file_type: Option<String>,
 }
 
+#[derive(Debug)]
+pub struct MsSocketInfo<T>
+where
+    T: AzureApiSpeakerList + AzureApiNewWebsocket + AzureApiGenerateXMML,
+{
+    azure_api: Arc<Mutex<T>>,
+    tx: Arc<Mutex<Option<WebsocketRt>>>,
+    new: AtomicBool,
+}
 
 ///
 /// 微软 文本转语音接口注册服务
@@ -109,7 +120,7 @@ pub(crate) async fn register_service() {
     let args = AppArgs::parse_macro();
     if args.close_edge_free_api
         && args.close_official_preview_api
-        && args.close_official_consume_api
+        && args.close_official_subscribe_api
     {
         error!("请最起码启用一个api");
         std::process::exit(1);
@@ -244,99 +255,169 @@ pub(crate) async fn register_service() {
         });
 
         /// 官网 免费预览接口 新请求限制措施
-        static MS_TTS_GET_NEW_OFFICIAL_PREVIEW: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
-
+        static MS_TTS_GET_NEW_OFFICIAL_PREVIEW: Lazy<AtomicBool> =
+            Lazy::new(|| AtomicBool::new(false));
 
         // const info: Arc<Mutex<AzureApiPreviewFreeToken>> = Arc::new(Mutex::new(AzureApiPreviewFreeToken::new()));
         // let clone_info = info.clone();
-        crate::GLOBAL_EB.consumer("tts_ms_official_preview", |fn_msg| async move {
-            let eb_msg = fn_msg.msg.clone();
-            let eb = Arc::clone(&fn_msg.eb);
-            let ll = Bytes::from(eb_msg.body().await.as_bytes().expect("event_bus[tts_ms_official_preview]: body is not bytes").to_vec());
-            let request = MsTtsMsgRequest::from_bytes(ll);
-            let tx_socket = Arc::clone(SOCKET_TX_OFFICIAL_PREVIEW.get_or_init(|| async {
-                Arc::new(Mutex::new(None))
-            }).await);
+        crate::GLOBAL_EB
+            .consumer("tts_ms_official_preview", |fn_msg| async move {
+                let eb_msg = fn_msg.msg.clone();
+                let eb = Arc::clone(&fn_msg.eb);
+                let ll = Bytes::from(
+                    eb_msg
+                        .body()
+                        .await
+                        .as_bytes()
+                        .expect("event_bus[tts_ms_official_preview]: body is not bytes")
+                        .to_vec(),
+                );
+                let request = MsTtsMsgRequest::from_bytes(ll);
+                let tx_socket = Arc::clone(
+                    SOCKET_TX_OFFICIAL_PREVIEW
+                        .get_or_init(|| async { Arc::new(Mutex::new(None)) })
+                        .await,
+                );
 
-            if !MS_TTS_GET_NEW_OFFICIAL_PREVIEW.load(Ordering::Relaxed) && !tx_socket.clone().lock().await.is_some() {
-                MS_TTS_GET_NEW_OFFICIAL_PREVIEW.store(true, Ordering::Release);
-                debug!("websocket is not connected");
-                // let mut info_mut = ;
-                let mut result = AzureApiPreviewFreeToken::new().lock().await.get_connection().await;
-                // drop(info_mut);
-                // let mut result = new_websocket_edge_free().await;
-                'outer: loop {
-                    // 'outer:
-                    trace!("进入循环，防止websocket连接失败");
-                    let result_bool = result.is_ok();
+                if !MS_TTS_GET_NEW_OFFICIAL_PREVIEW.load(Ordering::Relaxed)
+                    && !tx_socket.clone().lock().await.is_some()
+                {
+                    MS_TTS_GET_NEW_OFFICIAL_PREVIEW.store(true, Ordering::Release);
+                    debug!("websocket is not connected");
+                    // let mut info_mut = ;
+                    let mut result = AzureApiPreviewFreeToken::new()
+                        .lock()
+                        .await
+                        .get_connection()
+                        .await;
+                    // drop(info_mut);
+                    // let mut result = new_websocket_edge_free().await;
+                    'outer: loop {
+                        // 'outer:
+                        trace!("进入循环，防止websocket连接失败");
+                        let result_bool = result.is_ok();
 
-                    if result_bool {
-                        trace!("websocket连接成功");
-                        let (tx_tmp, rx_tmp) = result.unwrap().split();
-                        *tx_socket.clone().lock().await = Some(tx_tmp);
-                        let tx_tmp1 = Arc::clone(&tx_socket);
-                        trace!("启动消息处理线程");
-                        eb.runtime.spawn(async move {
-                            process_response_body(rx_tmp, tx_tmp1, MS_TTS_DATA_CACHE_OFFICIAL_PREVIEW.clone()).await;
-                        });
-                        trace!("准备跳出循环");
-                        break 'outer;
-                    } else {
-                        trace!("reconnection websocket");
-                        sleep(Duration::from_secs(1)).await;
-                        result = AzureApiPreviewFreeToken::new().lock().await.get_connection().await;
+                        if result_bool {
+                            trace!("websocket连接成功");
+                            let (tx_tmp, rx_tmp) = result.unwrap().split();
+                            *tx_socket.clone().lock().await = Some(tx_tmp);
+                            let tx_tmp1 = Arc::clone(&tx_socket);
+                            trace!("启动消息处理线程");
+                            eb.runtime.spawn(async move {
+                                process_response_body(
+                                    rx_tmp,
+                                    tx_tmp1,
+                                    MS_TTS_DATA_CACHE_OFFICIAL_PREVIEW.clone(),
+                                )
+                                .await;
+                            });
+                            trace!("准备跳出循环");
+                            break 'outer;
+                        } else {
+                            trace!("reconnection websocket");
+                            sleep(Duration::from_secs(1)).await;
+                            result = AzureApiPreviewFreeToken::new()
+                                .lock()
+                                .await
+                                .get_connection()
+                                .await;
+                        }
+                    }
+                    trace!("循环已跳出");
+                    MS_TTS_GET_NEW_OFFICIAL_PREVIEW.store(false, Ordering::Release)
+                } else {
+                    while MS_TTS_GET_NEW_OFFICIAL_PREVIEW.load(Ordering::Relaxed)
+                        || !tx_socket.clone().lock().await.is_some()
+                    {
+                        tokio::time::sleep(Duration::from_millis(200)).await;
                     }
                 }
-                trace!("循环已跳出");
-                MS_TTS_GET_NEW_OFFICIAL_PREVIEW.store(false, Ordering::Release)
-            } else {
-                while MS_TTS_GET_NEW_OFFICIAL_PREVIEW.load(Ordering::Relaxed) || !tx_socket.clone().lock().await.is_some() {
-                    tokio::time::sleep(Duration::from_millis(200)).await;
+                trace!("存在websocket连接，继续处理");
+
+                let request_id = request.request_id.clone();
+                debug!("发送请求: {} | {:?}", request.request_id, request);
+
+                let xmml = AzureApiPreviewFreeToken::new()
+                    .lock()
+                    .await
+                    .generate_xmml(request)
+                    .await
+                    .expect("generate_xmml 错误");
+
+                // 向 websocket 发送消息
+                MS_TTS_DATA_CACHE_OFFICIAL_PREVIEW
+                    .clone()
+                    .lock()
+                    .await
+                    .insert(
+                        request_id,
+                        Arc::new(Mutex::new(MsTtsCache {
+                            data: BytesMut::new(),
+                            reply: eb_msg.clone(),
+                            file_type: None,
+                        })),
+                    );
+
+                let mut gg = tx_socket.lock().await;
+                let socket = gg.as_mut();
+                if let Some(s) = socket {
+                    for i in xmml {
+                        debug!("xmml data: {}", &i);
+                        s.send(Message::Text(i)).await.unwrap();
+                    }
+                    drop(gg)
                 }
-            }
-            trace!("存在websocket连接，继续处理");
-
-            let request_id = request.request_id.clone();
-            debug!("发送请求: {} | {:?}", request.request_id, request);
-
-            let xmml = AzureApiPreviewFreeToken::new()
-                .lock()
-                .await
-                .generate_xmml(request)
-                .await
-                .expect("generate_xmml 错误");
-
-            // 向 websocket 发送消息
-            MS_TTS_DATA_CACHE_OFFICIAL_PREVIEW.clone().lock().await.insert(
-                request_id,
-                Arc::new(Mutex::new(MsTtsCache {
-                    data: BytesMut::new(),
-                    reply: eb_msg.clone(),
-                    file_type: None,
-                })),
-            );
-
-            let mut gg = tx_socket.lock().await;
-            let socket = gg.as_mut();
-            if let Some(s) = socket {
-                for i in xmml {
-                    debug!("xmml data: {}", &i);
-                    s.send(Message::Text(i)).await.unwrap();
-                }
-                drop(gg)
-            }
-
-        }).await;
+            })
+            .await;
     }
 
     // 注册 官网ApiKey 调用服务
-    if !args.close_official_consume_api {
+    if !args.close_official_subscribe_api {
+        static OFFICIAL_SUBSCRIBE_API_LIST: OnceCell<Vec<AzureSubscribeKey>> =
+            OnceCell::const_new();
+        static OFFICIAL_SUBSCRIBE_API_USE_INDEX: Lazy<Mutex<usize>> = Lazy::new(|| Mutex::new(0));
+
+        let vec_list = &args.subscribe_key;
+
+        OFFICIAL_SUBSCRIBE_API_LIST
+            .get_or_init(|| async move {
+                let azure_subscribe_keys = AzureSubscribeKey::from(vec_list);
+                azure_subscribe_keys
+            })
+            .await;
+
+        if OFFICIAL_SUBSCRIBE_API_LIST.get().unwrap().len() < 1 {
+            error!("为了启用 subscribe api 最起码得添加一个有用的数据吧");
+            std::process::exit(1);
+        }
 
         /// 官网 免费预览接口 socket 连接
-        static SOCKET_TX_OFFICIAL_SUBSCRIBE: OnceCell<Arc<Mutex<Option<WebsocketRt>>>> =
-            OnceCell::const_new();
+        static SOCKET_TX_MAP_OFFICIAL_SUBSCRIBE: OnceCell<
+            Mutex<HashMap<String, Arc<Mutex<MsSocketInfo<AzureApiSubscribeToken>>>>>,
+        > = OnceCell::const_new();
+        //AtomicBool::new(false)
+        // static SOCKET_TX_OFFICIAL_SUBSCRIBE: OnceCell<Arc<Mutex<Option<WebsocketRt>>>> =
+        //OnceCell::const_new();
 
-        /// 官网 免费预览接口 数据缓存
+        SOCKET_TX_MAP_OFFICIAL_SUBSCRIBE
+            .get_or_init(|| async move {
+                let mut h = HashMap::new();
+                for subscribe_key in OFFICIAL_SUBSCRIBE_API_LIST.get().unwrap().iter() {
+                    let info = MsSocketInfo {
+                        azure_api: Arc::new(Mutex::new(AzureApiSubscribeToken::new(
+                            AzureApiRegionIdentifier::from(&subscribe_key.1).unwrap(),
+                            &subscribe_key.0,
+                        ))),
+                        tx: Arc::new(Mutex::new(None)),
+                        new: AtomicBool::new(false),
+                    };
+                    h.insert(subscribe_key.hash_str(), Arc::new(Mutex::new(info)));
+                }
+                Mutex::new(h)
+            })
+            .await;
+
+        /// 官网 订阅API 响应数据缓存
         static MS_TTS_DATA_CACHE_OFFICIAL_SUBSCRIBE: Lazy<
             Arc<Mutex<HashMap<String, Arc<Mutex<MsTtsCache>>>>>,
         > = Lazy::new(|| {
@@ -344,15 +425,163 @@ pub(crate) async fn register_service() {
             Arc::new(Mutex::new(kk))
         });
 
-        /// 官网 免费预览接口 新请求限制措施
-        static MS_TTS_GET_NEW_OFFICIAL_SUBSCRIBE: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
+        #[macro_export]
+        macro_rules! get_subscribe_api_cache {
+            () => {
+                SOCKET_TX_MAP_OFFICIAL_SUBSCRIBE.get().unwrap().lock().await
+            };
+        }
 
-
+        #[macro_export]
+        macro_rules! get_subscribe_api_tx_for_map {
+            () => {
+                SOCKET_TX_MAP_OFFICIAL_SUBSCRIBE.get().unwrap().lock().await
+            };
+        }
+        //
 
         crate::GLOBAL_EB
-            .consumer("tts_ms_api_key", |fn_msg| async move {
+            .consumer("tts_ms_subscribe_api", |fn_msg| async move {
+                let eb_msg = fn_msg.msg.clone();
+                let eb = Arc::clone(&fn_msg.eb);
+                let ll = Bytes::from(
+                    eb_msg
+                        .body()
+                        .await
+                        .as_bytes()
+                        .expect("event_bus[tts_ms_subscribe_api]: body is not bytes")
+                        .to_vec(),
+                );
+                let request = MsTtsMsgRequest::from_bytes(ll);
 
+                let key_info = if (&request.region).is_some() && (&request.subscribe_key).is_some()
+                {
+                    let key_tmp = String::from(request.subscribe_key.as_ref().unwrap());
+                    let region_tmp = String::from(request.region.as_ref().unwrap());
 
+                    let api_key = AzureSubscribeKey(key_tmp, region_tmp);
+                    let hash = api_key.hash_str();
+                    let if_contains = get_subscribe_api_tx_for_map!().contains_key(&hash);
+                    let key_info = if if_contains {
+                        get_subscribe_api_tx_for_map!().get(&hash).unwrap().clone()
+                    } else {
+                        let key_info = Arc::new(Mutex::new(MsSocketInfo {
+                            azure_api: Arc::new(Mutex::new(AzureApiSubscribeToken::new(
+                                AzureApiRegionIdentifier::from(&api_key.1).unwrap(),
+                                &api_key.0,
+                            ))),
+                            tx: Arc::new(Mutex::new(None)),
+                            new: AtomicBool::new(false),
+                        }));
+                        get_subscribe_api_tx_for_map!().insert(hash, key_info.clone());
+                        key_info
+                    };
+                    key_info
+                } else {
+                    let index = *OFFICIAL_SUBSCRIBE_API_USE_INDEX.lock().await;
+                    let key_info = OFFICIAL_SUBSCRIBE_API_LIST
+                        .get()
+                        .unwrap()
+                        .get(index)
+                        .unwrap();
+                    get_subscribe_api_tx_for_map!()
+                        .get(&key_info.hash_str())
+                        .unwrap()
+                        .clone()
+                };
+                let azure_api = key_info.lock().await.azure_api.clone();
+
+                let tx_socket = key_info.lock().await.tx.clone();
+
+                if !key_info.lock().await.new.load(Ordering::Relaxed)
+                    && !tx_socket.clone().lock().await.is_some()
+                {
+                    key_info.lock().await.new.store(true, Ordering::Release);
+
+                    debug!("websocket is not connected");
+                    // let mut info_mut = ;
+                    // let token_info = key_info.lock().await.azure_api.clone();
+                    let mut result = azure_api.lock().await.get_connection().await;
+                    // drop(info_mut);
+                    // let mut result = new_websocket_edge_free().await;
+                    'outer: loop {
+                        // 'outer:
+                        trace!("进入循环，防止websocket连接失败");
+                        let result_bool = result.is_ok();
+
+                        if result_bool {
+                            trace!("websocket连接成功");
+                            let (tx_tmp, rx_tmp) = result.unwrap().split();
+                            *tx_socket.clone().lock().await = Some(tx_tmp);
+                            let tx_tmp1 = Arc::clone(&tx_socket);
+                            trace!("启动消息处理线程");
+                            eb.runtime.spawn(async move {
+                                process_response_body(
+                                    rx_tmp,
+                                    tx_tmp1,
+                                    MS_TTS_DATA_CACHE_OFFICIAL_SUBSCRIBE.clone(),
+                                )
+                                .await;
+                                *OFFICIAL_SUBSCRIBE_API_USE_INDEX.lock().await += 1;
+                            });
+                            trace!("准备跳出循环");
+                            break 'outer;
+                        } else {
+                            trace!("reconnection websocket");
+                            sleep(Duration::from_secs(1)).await;
+                            result = AzureApiPreviewFreeToken::new()
+                                .lock()
+                                .await
+                                .get_connection()
+                                .await;
+                        }
+                    }
+                    trace!("循环已跳出");
+
+                    trace!("循环已跳出");
+                    key_info.lock().await.new.store(false, Ordering::Release)
+                } else {
+                    while key_info.lock().await.new.load(Ordering::Relaxed)
+                        || !tx_socket.clone().lock().await.is_some()
+                    {
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                    }
+                }
+                trace!("存在websocket连接，继续处理");
+
+                let request_id = request.request_id.clone();
+                debug!("发送请求: {} | {:?}", request_id, request);
+
+                let xmml = azure_api
+                    .lock()
+                    .await
+                    .generate_xmml(request)
+                    .await
+                    .expect("generate_xmml 错误");
+
+                // 向 websocket 发送消息
+                MS_TTS_DATA_CACHE_OFFICIAL_SUBSCRIBE
+                    .clone()
+                    .lock()
+                    .await
+                    .insert(
+                        request_id,
+                        Arc::new(Mutex::new(MsTtsCache {
+                            data: BytesMut::new(),
+                            reply: eb_msg.clone(),
+                            file_type: None,
+                        })),
+                    );
+
+                let mut gg = tx_socket.lock().await;
+                let socket = gg.as_mut();
+                if let Some(s) = socket {
+                    for i in xmml {
+                        debug!("xmml data: {}", &i);
+                        s.send(Message::Text(i)).await.unwrap();
+                    }
+                    drop(gg)
+                }
             })
             .await;
     }
@@ -373,10 +602,10 @@ async fn process_response_body(
                 trace!("收到消息");
                 match m {
                     Message::Ping(s) => {
-                        trace!("收到ping消息: {:?}",s);
+                        trace!("收到ping消息: {:?}", s);
                     }
                     Message::Pong(s) => {
-                        trace!("收到pong消息: {:?}",s);
+                        trace!("收到pong消息: {:?}", s);
                     }
                     Message::Close(s) => {
                         debug!("被动断开连接: {:?}", s);
@@ -386,7 +615,6 @@ async fn process_response_body(
                         let id = s[12..44].to_string();
                         // info!("到消息: {}", id);
                         if let Some(_i) = s.find("Path:turn.start") {
-
                         } else if let Some(_i) = s.find("Path:turn.end") {
                             trace!("响应 {}， 结束", id);
                             let data = { cache_db.lock().await.remove(&id) };
@@ -440,9 +668,7 @@ async fn process_response_body(
                               trace!("其他二进制类型: {} ", unsafe { String::from_utf8_unchecked(s.to_vec()) });
                           }*/
                     }
-                    _ => {
-
-                    }
+                    _ => {}
                 }
             }
             Err(e) => {

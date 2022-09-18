@@ -1,4 +1,4 @@
-use clap::{Arg, ArgAction, ArgEnum, ArgMatches, Command, Parser, PossibleValue, ValueEnum};
+use clap::{ArgEnum, ArgMatches, Command, Parser, PossibleValue, ValueEnum};
 use log::LevelFilter;
 use once_cell::sync::OnceCell;
 
@@ -41,11 +41,14 @@ pub struct AppArgs {
 
     /// 禁用 官方网页收费（有免费额度）版本接口
     #[clap(long, parse(from_flag))]
-    pub close_official_consume_api: bool,
+    pub close_official_subscribe_api: bool,
 
     /// 指定不从官方更新最新发音人 (可以快速使用本地缓存启动程序)
     #[clap(long, parse(from_flag))]
     pub do_not_update_speakers_list: bool,
+
+    #[clap(long)]
+    pub subscribe_key: Vec<String>,
 
     /// 是否开启 debug 日志
     #[clap(long, default_value_t = LevelFilter::Info)]
@@ -80,7 +83,7 @@ impl AppArgs {
         })
     }
 
-    #[allow(dead_code)]
+    /*#[allow(dead_code)]
     pub fn parse_config() -> Self {
         /*let arg_parse = Command::new(env!("CARGO_PKG_NAME"))
             .version(env!("CARGO_PKG_VERSION"))
@@ -175,7 +178,7 @@ impl AppArgs {
         let matchs = arg_parse.get_matches();
         info!("{:#?}", matchs);*/
 
-    }
+    }*/
 }
 
 /// Wrapping LevelFilter
