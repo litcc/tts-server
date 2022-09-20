@@ -45,7 +45,7 @@ event_bus = { path = "/mnt/work/code/Me/Rust/EventBus" }
 chrono = "0.4.20" # 时间库
 async-trait = "0.1.57"
 base64 = "0.13.0"
-rust-embed = { version = "6.4.0", optional = true }  # 嵌入文件库
+rust-embed = { version = "6.4.0" }  # 嵌入文件库  , optional = true
 
 [profile.release]
 opt-level = 'z'
@@ -59,7 +59,7 @@ panic = 'abort'
 
 
 # Build this crate in isolation, without using PyOxidizer.
-web-entrance = ["rust-embed"]
+#web-entrance = ["rust-embed"]
 
 # Build this crate by executing a `pyoxidizer` executable to build
 # required artifacts.

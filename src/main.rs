@@ -61,10 +61,6 @@ async fn main_async() -> Result<()> {
     web::register_service(args.listen_address.clone(), args.listen_port.clone()).await;
     info!("谢谢使用，希望能收到您对软件的看法和建议！");
 
-
-    // runtime.block_on(async move {
-    //
-    // });
     Ok(())
 }
 

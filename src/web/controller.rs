@@ -6,58 +6,13 @@ use log::{debug, warn};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
+use actix_web::body::BoxBody;
 use crate::ms_tts::{MsTtsMsgResponse, MS_TTS_CONFIG};
 use urlencoding::decode as url_decode;
 use crate::utils::azure_api::MsTtsMsgRequest;
+use crate::web::entity::ApiBaseResponse;
+use crate::web::error::ControllerError;
 
-
-// ##### Error Struct ############################################################################
-
-#[derive(Debug)]
-pub enum ControllerError {
-    TextNone(String),
-}
-
-impl Display for ControllerError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(Error: {:?})", self)
-    }
-}
-
-
-#[derive(Serialize, Deserialize, PartialEq, Debug)]
-pub struct ApiBaseResponse<T> {
-    pub code: i32,
-    pub data: Option<T>,
-    pub msg: String,
-}
-
-impl<T> ToString for ApiBaseResponse<T>
-where
-    T: Serialize + DeserializeOwned + Debug,
-{
-    fn to_string(&self) -> String {
-        serde_json::to_string(self).unwrap()
-    }
-}
-
-impl<T> ApiBaseResponse<T> {
-    pub fn success(data: T) -> ApiBaseResponse<T> {
-        ApiBaseResponse {
-            code: 0,
-            data: Some(data),
-            msg: "success".to_string(),
-        }
-    }
-
-    pub fn error(msg: &str) -> ApiBaseResponse<T> {
-        ApiBaseResponse {
-            code: -1,
-            data: None,
-            msg: msg.to_owned(),
-        }
-    }
-}
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct MsTtsMsgRequestJson {
@@ -98,12 +53,23 @@ impl MsTtsMsgRequestJson {
             };
             if text_tmp2.is_empty() {
                 // 如果文字为空则返回1秒空音乐
-                return Err(ControllerError::TextNone("".to_string()));
+                return Err(ControllerError::new("文本为空"));
             }
+
+
+            // 转义符号
+            let result = Regex::new(r"<")
+                .unwrap()
+                .replace_all(&text_tmp2, "&lt;")
+                .to_string();
+            let result = Regex::new(r">")
+                .unwrap()
+                .replace_all(&result, "&gt;")
+                .to_string();
 
             let result = Regex::new(r"？")
                 .unwrap()
-                .replace_all(&text_tmp2, "? ")
+                .replace_all(&result, "? ")
                 .to_string();
             let result = Regex::new(r"，")
                 .unwrap()
@@ -227,7 +193,7 @@ impl MsTtsMsgRequestJson {
             pitch: pitch_value,
             quality: quality_value,
             subscribe_key: None,
-            region: None
+            region: None,
         })
     }
 }
@@ -238,35 +204,94 @@ impl MsTtsMsgRequestJson {
 pub(crate) async fn tts_ms_post_controller(
     _req: HttpRequest,
     body: web::Json<MsTtsMsgRequestJson>,
-) -> HttpResponse {
+) -> Result<HttpResponse, ControllerError> {
     let id = random_string(32);
     debug!("收到 post 请求{:?}", body);
     let request_tmp = body.to_ms_request(id.clone());
     info!("解析 post 请求 {:?}", request_tmp);
-    let re = request_ms_tts(request_tmp).await;
+    let re = request_ms_tts("tts_ms_edge_free", request_tmp).await;
     debug!("响应 post 请求 {}", &id);
-    return re;
+    re
 }
 
 pub(crate) async fn tts_ms_get_controller(
     _req: HttpRequest,
     request: web::Query<MsTtsMsgRequestJson>,
-) -> HttpResponse {
+) -> Result<HttpResponse, ControllerError> {
     let id = random_string(32);
     debug!("收到 get 请求{:?}", request);
     let request_tmp = request.to_ms_request(id.clone());
     info!("解析 get 请求 {:?}", request_tmp);
-    let re = request_ms_tts(request_tmp).await;
+
+    let re = request_ms_tts("tts_ms_edge_free", request_tmp).await;
     debug!("响应 get 请求 {}", &id);
-    return re;
+
+    re
 }
 
-async fn request_ms_tts(data: Result<MsTtsMsgRequest, ControllerError>) -> HttpResponse {
+
+pub(crate) async fn tts_ms_subscribe_api_get_controller(
+    _req: HttpRequest,
+    request: web::Query<MsTtsMsgRequestJson>,
+) -> Result<HttpResponse, ControllerError> {
+    let id = random_string(32);
+    debug!("收到 get 请求 /api/tts-ms-subscribe-api {:?}", request);
+    let request_tmp = request.to_ms_request(id.clone());
+    info!("解析 get 请求 {:?}", request_tmp);
+    let re = request_ms_tts("tts_ms_subscribe_api", request_tmp).await;
+    debug!("响应 get 请求 {}", &id);
+    re
+}
+
+
+pub(crate) async fn tts_ms_subscribe_api_post_controller(
+    _req: HttpRequest,
+    body: web::Json<MsTtsMsgRequestJson>,
+) -> Result<HttpResponse, ControllerError> {
+    let id = random_string(32);
+    debug!("收到 post 请求 /api/tts-ms-subscribe-api {:?}", body);
+    let request_tmp = body.to_ms_request(id.clone());
+    info!("解析 post 请求 /api/tts-ms-subscribe-api {:?}", request_tmp);
+    let re = request_ms_tts("tts_ms_subscribe_api", request_tmp).await;
+    debug!("响应 post 请求 {}", &id);
+    re
+}
+
+
+pub(crate) async fn tts_ms_official_preview_get_controller(
+    _req: HttpRequest,
+    request: web::Query<MsTtsMsgRequestJson>,
+) -> Result<HttpResponse, ControllerError> {
+    let id = random_string(32);
+    debug!("收到 get 请求 /api/tts-ms-subscribe-api {:?}", request);
+    let request_tmp = request.to_ms_request(id.clone());
+    info!("解析 get 请求 {:?}", request_tmp);
+    let re = request_ms_tts("tts_ms_official_preview", request_tmp).await;
+    debug!("响应 get 请求 {}", &id);
+    re
+}
+
+
+pub(crate) async fn tts_ms_official_preview_post_controller(
+    _req: HttpRequest,
+    body: web::Json<MsTtsMsgRequestJson>,
+) -> Result<HttpResponse, ControllerError> {
+    let id = random_string(32);
+    debug!("收到 post 请求 /api/tts-ms-subscribe-api {:?}", body);
+    let request_tmp = body.to_ms_request(id.clone());
+    info!("解析 post 请求 /api/tts-ms-subscribe-api {:?}", request_tmp);
+    let re = request_ms_tts("tts_ms_official_preview", request_tmp).await;
+    debug!("响应 post 请求 {}", &id);
+    re
+}
+
+
+async fn request_ms_tts(api_name: &str, data: Result<MsTtsMsgRequest, ControllerError>) -> Result<HttpResponse, ControllerError> {
     match data {
-        Ok(r) => {
-            let id = r.request_id.clone();
+        Ok(rd) => {
+            let id = rd.request_id.clone();
             // debug!("请求微软语音服务器");
-            let kk = crate::GLOBAL_EB.request("tts_ms_edge_free", r.into()).await;
+            let kk = crate::GLOBAL_EB.request(api_name, rd.into()).await;
             // debug!("请求微软语音完成");
             match kk {
                 Some(data) => {
@@ -277,33 +302,31 @@ async fn request_ms_tts(data: Result<MsTtsMsgRequest, ControllerError>) -> HttpR
                         actix_web::http::header::CONTENT_TYPE,
                         data.file_type.parse().unwrap(),
                     );
-                    respone
+                    Ok(respone)
                 }
                 None => {
-                    let mut respone = HttpResponse::build(StatusCode::OK).body("未知错误");
-                    respone.headers_mut().insert(
-                        actix_web::http::header::CONTENT_TYPE,
-                        "text".parse().unwrap(),
-                    );
                     warn!("生成语音失败 {}", id);
-                    respone
+
+                    let ll: HttpResponse<BoxBody> = ApiBaseResponse::<()>::error("未知错误").into();
+                    Ok(ll)
                 }
             }
         }
-        Err(e) => match e {
-            ControllerError::TextNone(_t) => {
+        Err(e) => {
+            if e.msg == "文本为空" {
                 let mut respone = HttpResponse::build(StatusCode::OK)
                     .body(crate::ms_tts::BLANK_MUSIC_FILE.to_vec());
                 respone.headers_mut().insert(
                     actix_web::http::header::CONTENT_TYPE,
                     "audio/mpeg".parse().unwrap(),
                 );
-                respone
+                Ok(respone)
+            } else {
+                Err(e)
             }
-        },
+        }
     }
 }
-
 
 
 

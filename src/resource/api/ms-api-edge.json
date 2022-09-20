@@ -1,0 +1,21 @@
+{
+  "api_name": "ms-tts-edge",
+  "api_desc": "微软语音合成 - Edge浏览器免费接口",
+  "api_url": "/api/tts-ms-edge",
+  "params": [
+    {
+      "index": 0,
+      "param_type": "Text",
+      "param_name": "text",
+      "param_desc": "待生成文本",
+      "max_len": 1000
+    },
+    {
+      "index": 1,
+      "param_type": "List",
+      "param_name": "informant",
+      "param_desc": "发音人",
+      "list_data_url": "/api/ms-tts/informant/{{api_name}}"
+    }
+  ]
+}

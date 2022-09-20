@@ -106,7 +106,7 @@ pub struct MsSocketInfo<T>
 where
     T: AzureApiSpeakerList + AzureApiNewWebsocket + AzureApiGenerateXMML,
 {
-    azure_api: Arc<Mutex<T>>,
+    azure_api: Arc<T>,
     tx: Arc<Mutex<Option<WebsocketRt>>>,
     new: AtomicBool,
 }
@@ -169,7 +169,7 @@ pub(crate) async fn register_service() {
                 {
                     MS_TTS_GET_NEW_EDGE_FREE.store(true, Ordering::Release);
                     debug!("websocket is not connected");
-                    let mut result = AzureApiEdgeFree::new().lock().await.get_connection().await;
+                    let mut result = AzureApiEdgeFree::new().get_connection().await;
                     'outer: loop {
                         // 'outer:
                         trace!("进入循环，防止websocket连接失败");
@@ -194,7 +194,7 @@ pub(crate) async fn register_service() {
                         } else {
                             trace!("reconnection websocket");
                             sleep(Duration::from_secs(1)).await;
-                            result = AzureApiEdgeFree::new().lock().await.get_connection().await;
+                            result = AzureApiEdgeFree::new().get_connection().await;
                         }
                     }
                     trace!("循环已跳出");
@@ -211,8 +211,6 @@ pub(crate) async fn register_service() {
                 debug!("发送请求: {} | {:?}", request.request_id, request);
 
                 let xmml = AzureApiEdgeFree::new()
-                    .lock()
-                    .await
                     .generate_xmml(request)
                     .await
                     .expect("generate_xmml 错误");
@@ -286,8 +284,6 @@ pub(crate) async fn register_service() {
                     debug!("websocket is not connected");
                     // let mut info_mut = ;
                     let mut result = AzureApiPreviewFreeToken::new()
-                        .lock()
-                        .await
                         .get_connection()
                         .await;
                     // drop(info_mut);
@@ -317,8 +313,6 @@ pub(crate) async fn register_service() {
                             trace!("reconnection websocket");
                             sleep(Duration::from_secs(1)).await;
                             result = AzureApiPreviewFreeToken::new()
-                                .lock()
-                                .await
                                 .get_connection()
                                 .await;
                         }
@@ -338,8 +332,6 @@ pub(crate) async fn register_service() {
                 debug!("发送请求: {} | {:?}", request.request_id, request);
 
                 let xmml = AzureApiPreviewFreeToken::new()
-                    .lock()
-                    .await
                     .generate_xmml(request)
                     .await
                     .expect("generate_xmml 错误");
@@ -393,29 +385,36 @@ pub(crate) async fn register_service() {
 
         /// 官网 免费预览接口 socket 连接
         static SOCKET_TX_MAP_OFFICIAL_SUBSCRIBE: OnceCell<
-            Mutex<HashMap<String, Arc<Mutex<MsSocketInfo<AzureApiSubscribeToken>>>>>,
+            Mutex<HashMap<String, Arc<MsSocketInfo<AzureApiSubscribeToken>>>>,
         > = OnceCell::const_new();
         //AtomicBool::new(false)
         // static SOCKET_TX_OFFICIAL_SUBSCRIBE: OnceCell<Arc<Mutex<Option<WebsocketRt>>>> =
         //OnceCell::const_new();
 
+        // 设定程序配置的订阅key
         SOCKET_TX_MAP_OFFICIAL_SUBSCRIBE
             .get_or_init(|| async move {
                 let mut h = HashMap::new();
                 for subscribe_key in OFFICIAL_SUBSCRIBE_API_LIST.get().unwrap().iter() {
+                    
+                    
                     let info = MsSocketInfo {
-                        azure_api: Arc::new(Mutex::new(AzureApiSubscribeToken::new(
-                            AzureApiRegionIdentifier::from(&subscribe_key.1).unwrap(),
-                            &subscribe_key.0,
-                        ))),
+                        azure_api: AzureApiSubscribeToken::new_from_subscribe_key(subscribe_key),
                         tx: Arc::new(Mutex::new(None)),
                         new: AtomicBool::new(false),
                     };
-                    h.insert(subscribe_key.hash_str(), Arc::new(Mutex::new(info)));
+                    h.insert(subscribe_key.hash_str(), Arc::new(info));
                 }
                 Mutex::new(h)
             })
             .await;
+
+        // 根据程序内订阅key获取发音人等数据
+        if let Err(e) = AzureApiSubscribeToken::get_vices_mixed_list().await {
+            error!("获取订阅key 的音频列表失败, {:?}",e);
+            std::process::exit(1);
+        }
+
 
         /// 官网 订阅API 响应数据缓存
         static MS_TTS_DATA_CACHE_OFFICIAL_SUBSCRIBE: Lazy<
@@ -459,20 +458,18 @@ pub(crate) async fn register_service() {
                     let key_tmp = String::from(request.subscribe_key.as_ref().unwrap());
                     let region_tmp = String::from(request.region.as_ref().unwrap());
 
-                    let api_key = AzureSubscribeKey(key_tmp, region_tmp);
+                    let api_key = AzureSubscribeKey(key_tmp, AzureApiRegionIdentifier::from(&region_tmp).unwrap());
                     let hash = api_key.hash_str();
                     let if_contains = get_subscribe_api_tx_for_map!().contains_key(&hash);
                     let key_info = if if_contains {
                         get_subscribe_api_tx_for_map!().get(&hash).unwrap().clone()
                     } else {
-                        let key_info = Arc::new(Mutex::new(MsSocketInfo {
-                            azure_api: Arc::new(Mutex::new(AzureApiSubscribeToken::new(
-                                AzureApiRegionIdentifier::from(&api_key.1).unwrap(),
-                                &api_key.0,
-                            ))),
+                        
+                        let key_info = Arc::new(MsSocketInfo {
+                            azure_api: AzureApiSubscribeToken::new_from_subscribe_key(&api_key),
                             tx: Arc::new(Mutex::new(None)),
                             new: AtomicBool::new(false),
-                        }));
+                        });
                         get_subscribe_api_tx_for_map!().insert(hash, key_info.clone());
                         key_info
                     };
@@ -489,19 +486,19 @@ pub(crate) async fn register_service() {
                         .unwrap()
                         .clone()
                 };
-                let azure_api = key_info.lock().await.azure_api.clone();
+                let azure_api = key_info.azure_api.clone();
 
-                let tx_socket = key_info.lock().await.tx.clone();
+                let tx_socket = key_info.tx.clone();
 
-                if !key_info.lock().await.new.load(Ordering::Relaxed)
+                if !key_info.new.load(Ordering::Relaxed)
                     && !tx_socket.clone().lock().await.is_some()
                 {
-                    key_info.lock().await.new.store(true, Ordering::Release);
+                    key_info.new.store(true, Ordering::Release);
 
                     debug!("websocket is not connected");
                     // let mut info_mut = ;
                     // let token_info = key_info.lock().await.azure_api.clone();
-                    let mut result = azure_api.lock().await.get_connection().await;
+                    let mut result = azure_api.get_connection().await;
                     // drop(info_mut);
                     // let mut result = new_websocket_edge_free().await;
                     'outer: loop {
@@ -530,8 +527,6 @@ pub(crate) async fn register_service() {
                             trace!("reconnection websocket");
                             sleep(Duration::from_secs(1)).await;
                             result = AzureApiPreviewFreeToken::new()
-                                .lock()
-                                .await
                                 .get_connection()
                                 .await;
                         }
@@ -539,9 +534,9 @@ pub(crate) async fn register_service() {
                     trace!("循环已跳出");
 
                     trace!("循环已跳出");
-                    key_info.lock().await.new.store(false, Ordering::Release)
+                    key_info.new.store(false, Ordering::Release)
                 } else {
-                    while key_info.lock().await.new.load(Ordering::Relaxed)
+                    while key_info.new.load(Ordering::Relaxed)
                         || !tx_socket.clone().lock().await.is_some()
                     {
                         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -553,8 +548,6 @@ pub(crate) async fn register_service() {
                 debug!("发送请求: {} | {:?}", request_id, request);
 
                 let xmml = azure_api
-                    .lock()
-                    .await
                     .generate_xmml(request)
                     .await
                     .expect("generate_xmml 错误");
