@@ -33,8 +33,6 @@ pub(crate) static TAG_BODY_SPLIT: [u8; 12] = [80, 97, 116, 104, 58, 97, 117, 100
 // gX-R
 pub(crate) static TAG_NONE_DATA_START: [u8; 2] = [0, 103];
 
-pub(crate) static MS_TTS_CONFIG: OnceCell<MsTtsConfig> = OnceCell::const_new();
-
 impl MsTtsMsgRequest {
     #[inline]
     pub fn to_bytes(&self) -> Bytes {
@@ -141,9 +139,6 @@ pub(crate) async fn register_service() {
         });
         /// edge 免费接口 新请求限制措施
         static MS_TTS_GET_NEW_EDGE_FREE: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
-
-        let kk_s = get_ms_tts_config().await.unwrap();
-        MS_TTS_CONFIG.get_or_init(move || async { kk_s }).await;
 
         crate::GLOBAL_EB
             .consumer("tts_ms_edge_free", |fn_msg| async move {
@@ -283,9 +278,7 @@ pub(crate) async fn register_service() {
                     MS_TTS_GET_NEW_OFFICIAL_PREVIEW.store(true, Ordering::Release);
                     debug!("websocket is not connected");
                     // let mut info_mut = ;
-                    let mut result = AzureApiPreviewFreeToken::new()
-                        .get_connection()
-                        .await;
+                    let mut result = AzureApiPreviewFreeToken::new().get_connection().await;
                     // drop(info_mut);
                     // let mut result = new_websocket_edge_free().await;
                     'outer: loop {
@@ -312,9 +305,7 @@ pub(crate) async fn register_service() {
                         } else {
                             trace!("reconnection websocket");
                             sleep(Duration::from_secs(1)).await;
-                            result = AzureApiPreviewFreeToken::new()
-                                .get_connection()
-                                .await;
+                            result = AzureApiPreviewFreeToken::new().get_connection().await;
                         }
                     }
                     trace!("循环已跳出");
@@ -396,8 +387,6 @@ pub(crate) async fn register_service() {
             .get_or_init(|| async move {
                 let mut h = HashMap::new();
                 for subscribe_key in OFFICIAL_SUBSCRIBE_API_LIST.get().unwrap().iter() {
-                    
-                    
                     let info = MsSocketInfo {
                         azure_api: AzureApiSubscribeToken::new_from_subscribe_key(subscribe_key),
                         tx: Arc::new(Mutex::new(None)),
@@ -411,10 +400,9 @@ pub(crate) async fn register_service() {
 
         // 根据程序内订阅key获取发音人等数据
         if let Err(e) = AzureApiSubscribeToken::get_vices_mixed_list().await {
-            error!("获取订阅key 的音频列表失败, {:?}",e);
+            error!("获取订阅key 的音频列表失败, {:?}", e);
             std::process::exit(1);
         }
-
 
         /// 官网 订阅API 响应数据缓存
         static MS_TTS_DATA_CACHE_OFFICIAL_SUBSCRIBE: Lazy<
@@ -458,13 +446,15 @@ pub(crate) async fn register_service() {
                     let key_tmp = String::from(request.subscribe_key.as_ref().unwrap());
                     let region_tmp = String::from(request.region.as_ref().unwrap());
 
-                    let api_key = AzureSubscribeKey(key_tmp, AzureApiRegionIdentifier::from(&region_tmp).unwrap());
+                    let api_key = AzureSubscribeKey(
+                        key_tmp,
+                        AzureApiRegionIdentifier::from(&region_tmp).unwrap(),
+                    );
                     let hash = api_key.hash_str();
                     let if_contains = get_subscribe_api_tx_for_map!().contains_key(&hash);
                     let key_info = if if_contains {
                         get_subscribe_api_tx_for_map!().get(&hash).unwrap().clone()
                     } else {
-                        
                         let key_info = Arc::new(MsSocketInfo {
                             azure_api: AzureApiSubscribeToken::new_from_subscribe_key(&api_key),
                             tx: Arc::new(Mutex::new(None)),
@@ -526,9 +516,7 @@ pub(crate) async fn register_service() {
                         } else {
                             trace!("reconnection websocket");
                             sleep(Duration::from_secs(1)).await;
-                            result = AzureApiPreviewFreeToken::new()
-                                .get_connection()
-                                .await;
+                            result = AzureApiPreviewFreeToken::new().get_connection().await;
                         }
                     }
                     trace!("循环已跳出");
@@ -684,133 +672,3 @@ pub struct MsTtsConfig {
 // 空白音频
 #[allow(dead_code)]
 pub(crate) const BLANK_MUSIC_FILE: &'static [u8] = include_bytes!("resource/blank.mp3");
-
-// 发音人配置
-#[allow(dead_code)]
-pub(crate) const SPEAKERS_LIST_FILE: &'static [u8] = include_bytes!("resource/voices_list.json");
-
-///
-/// 从微软在线服务器上获取发音人列表
-pub(crate) async fn get_ms_online_config() -> Result<String, Box<dyn Error>> {
-    let client = reqwest::Client::new();
-    info!("开始从微软服务器更新发音人列表...");
-    trace!("开始请求token");
-    let resp = client
-        .get("https://azure.microsoft.com/zh-cn/services/cognitive-services/text-to-speech/")
-        .send()
-        .await?;
-    let html = resp.text().await?;
-    //debug!("html内容：{}",html);
-    let token = Regex::new(r#"token: "([a-zA-Z0-9\._-]+)""#)?.captures(&html)?;
-    let token_str = match token {
-        Some(t) => {
-            let df = t.get(1).unwrap().as_str();
-            trace!("token获取成功：{}", df);
-            Some(df.to_owned())
-        }
-        None => None,
-    };
-    if token_str.is_some() {
-        let region = Regex::new(r#"region: "([a-z0-9]+)""#)
-            .unwrap()
-            .captures(&html)?;
-        let region_str = match region {
-            Some(r) => {
-                let df = r.get(1).unwrap().as_str();
-                trace!("region获取成功：{}", df);
-                Some(df.to_owned())
-            }
-            None => None,
-        };
-        if region_str.is_none() {
-            return Err("region获取失败".into());
-        }
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            "Authorization",
-            format!("Bearer {}", token_str.unwrap()).parse().unwrap(),
-        );
-        headers.insert("Accept", "application/json".parse().unwrap());
-
-        let config_response = client
-            .get(format!(
-                "https://{}.tts.speech.microsoft.com/cognitiveservices/voices/list",
-                region_str.unwrap()
-            ))
-            .headers(headers)
-            .send()
-            .await?;
-        let config_respone_tmp = config_response.text().await;
-        if let Ok(json_text) = config_respone_tmp {
-            // tokio::fs::File::create("voices_list.json").await
-            //     .unwrap().write_all(json_text.as_bytes()).await.unwrap();
-            info!("获取发音人列表成功");
-            return Ok(json_text);
-        }
-    }
-    Err("获取在线配置失败".into())
-}
-
-///
-/// 获取微软文本转语音支持的发音人配置
-///
-///
-pub(crate) async fn get_ms_tts_config() -> Option<MsTtsConfig> {
-    let args: crate::AppArgs = crate::AppArgs::parse();
-
-    let config_json_text = if args.do_not_update_speakers_list {
-        String::from_utf8(SPEAKERS_LIST_FILE.to_vec()).unwrap()
-    } else {
-        let online = get_ms_online_config().await;
-        if let Ok(co) = online {
-            co
-        } else {
-            warn!("从微软服务器更新发音人列表失败！改为使用本地缓存");
-            String::from_utf8(SPEAKERS_LIST_FILE.to_vec()).unwrap()
-        }
-    };
-
-    let tmp_list_1: Vec<VoicesItem> = serde_json::from_str(&config_json_text).unwrap();
-
-    trace!("长度: {}", tmp_list_1.len());
-
-    let mut raw_data: Vec<Arc<VoicesItem>> = Vec::new();
-    let mut voices_name_list: HashSet<String> = HashSet::new();
-    let mut by_voices_name_map: HashMap<String, Arc<VoicesItem>> = HashMap::new();
-
-    tmp_list_1.iter().for_each(|item| {
-        let new = Arc::new(item.clone());
-        raw_data.push(new.clone());
-        voices_name_list.insert(item.short_name.to_string());
-        by_voices_name_map.insert(item.short_name.to_string(), new);
-    });
-
-    let mut by_locale_map: HashMap<String, Vec<Arc<VoicesItem>>> = HashMap::new();
-
-    let new_iter = raw_data.iter();
-    for (key, group) in &new_iter.group_by(|i| i.locale.as_str()) {
-        let mut locale_vec_list: Vec<Arc<VoicesItem>> = Vec::new();
-
-        group.for_each(|j| {
-            locale_vec_list.push(j.clone());
-        });
-        by_locale_map.insert(key.to_owned(), locale_vec_list);
-    }
-
-    let v_list = VoicesList {
-        voices_name_list,
-        raw_data,
-        by_voices_name_map,
-        by_locale_map,
-    };
-
-    let quality_list_tmp: Vec<String> = MS_TTS_QUALITY_LIST
-        .iter()
-        .map(|i| i.to_string())
-        .collect_vec();
-
-    return Some(MsTtsConfig {
-        voices_list: v_list,
-        quality_list: quality_list_tmp,
-    });
-}

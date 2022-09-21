@@ -2,14 +2,15 @@ use crate::{info, random_string};
 use actix_web::http::{StatusCode};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use fancy_regex::Regex;
-use log::{debug, warn};
+use log::{debug, error, warn};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Display, Formatter};
 use actix_web::body::BoxBody;
-use crate::ms_tts::{MsTtsMsgResponse, MS_TTS_CONFIG};
+use itertools::Itertools;
+use crate::ms_tts::{MsTtsMsgResponse};
 use urlencoding::decode as url_decode;
-use crate::utils::azure_api::MsTtsMsgRequest;
+use crate::utils::azure_api::{AzureApiEdgeFree, AzureApiPreviewFreeToken, AzureApiSpeakerList, AzureApiSubscribeToken, MS_TTS_QUALITY_LIST, MsApiOrigin, MsTtsMsgRequest};
 use crate::web::entity::ApiBaseResponse;
 use crate::web::error::ControllerError;
 
@@ -33,8 +34,9 @@ pub struct MsTtsMsgRequestJson {
 }
 
 impl MsTtsMsgRequestJson {
-    pub fn to_ms_request(
+    pub async fn to_ms_request(
         &self,
+        api_name: MsApiOrigin,
         request_id_value: String,
     ) -> Result<MsTtsMsgRequest, ControllerError> {
         let text_value: String = {
@@ -94,14 +96,31 @@ impl MsTtsMsgRequestJson {
 
             result
         };
-        let ms_tts_config = &MS_TTS_CONFIG.get().unwrap();
+
+        let ms_informant_list = match api_name {
+            MsApiOrigin::EdgeFree => {
+                AzureApiEdgeFree::new().get_vices_list().await
+            }
+            MsApiOrigin::OfficialPreview => {
+                AzureApiPreviewFreeToken::new().get_vices_list().await
+            }
+            MsApiOrigin::Subscription => {
+                AzureApiSubscribeToken::get_vices_mixed_list().await
+            }
+        }.map_err(|e| {
+            let err = ControllerError::new(format!("获取发音人数据错误 {:?}", e));
+            error!("{:?}",err);
+            err
+        })?;
+
+        // let ms_tts_config = &MS_TTS_CONFIG.get().unwrap();
 
         let informant_value: String = {
             let default = "zh-CN-XiaoxiaoNeural".to_owned();
 
             match &self.informant {
                 Some(inf) => {
-                    if ms_tts_config.voices_list.voices_name_list.contains(inf) {
+                    if ms_informant_list.voices_name_list.contains(inf) {
                         inf.to_string()
                     } else {
                         default
@@ -111,8 +130,7 @@ impl MsTtsMsgRequestJson {
             }
         }.trim().to_owned();
 
-        let informant_item = ms_tts_config
-            .voices_list
+        let informant_item = ms_informant_list
             .by_voices_name_map
             .get(&informant_value)
             .unwrap();
@@ -169,12 +187,12 @@ impl MsTtsMsgRequestJson {
                 default
             }
         }.trim().to_owned();
-        let quality_list = &ms_tts_config.quality_list;
+
 
         let quality_value: String = {
             let default = "audio-24khz-48kbitrate-mono-mp3".to_owned();
             if let Some(quality) = &self.quality {
-                if quality_list.contains(quality) {
+                if MS_TTS_QUALITY_LIST.contains(&quality.as_str()) {
                     quality.to_owned()
                 } else {
                     default
@@ -207,7 +225,7 @@ pub(crate) async fn tts_ms_post_controller(
 ) -> Result<HttpResponse, ControllerError> {
     let id = random_string(32);
     debug!("收到 post 请求{:?}", body);
-    let request_tmp = body.to_ms_request(id.clone());
+    let request_tmp = body.to_ms_request(MsApiOrigin::EdgeFree, id.clone()).await;
     info!("解析 post 请求 {:?}", request_tmp);
     let re = request_ms_tts("tts_ms_edge_free", request_tmp).await;
     debug!("响应 post 请求 {}", &id);
@@ -220,7 +238,7 @@ pub(crate) async fn tts_ms_get_controller(
 ) -> Result<HttpResponse, ControllerError> {
     let id = random_string(32);
     debug!("收到 get 请求{:?}", request);
-    let request_tmp = request.to_ms_request(id.clone());
+    let request_tmp = request.to_ms_request(MsApiOrigin::EdgeFree, id.clone()).await;
     info!("解析 get 请求 {:?}", request_tmp);
 
     let re = request_ms_tts("tts_ms_edge_free", request_tmp).await;
@@ -236,7 +254,7 @@ pub(crate) async fn tts_ms_subscribe_api_get_controller(
 ) -> Result<HttpResponse, ControllerError> {
     let id = random_string(32);
     debug!("收到 get 请求 /api/tts-ms-subscribe-api {:?}", request);
-    let request_tmp = request.to_ms_request(id.clone());
+    let request_tmp = request.to_ms_request(MsApiOrigin::Subscription, id.clone()).await;
     info!("解析 get 请求 {:?}", request_tmp);
     let re = request_ms_tts("tts_ms_subscribe_api", request_tmp).await;
     debug!("响应 get 请求 {}", &id);
@@ -250,7 +268,7 @@ pub(crate) async fn tts_ms_subscribe_api_post_controller(
 ) -> Result<HttpResponse, ControllerError> {
     let id = random_string(32);
     debug!("收到 post 请求 /api/tts-ms-subscribe-api {:?}", body);
-    let request_tmp = body.to_ms_request(id.clone());
+    let request_tmp = body.to_ms_request(MsApiOrigin::Subscription, id.clone()).await;
     info!("解析 post 请求 /api/tts-ms-subscribe-api {:?}", request_tmp);
     let re = request_ms_tts("tts_ms_subscribe_api", request_tmp).await;
     debug!("响应 post 请求 {}", &id);
@@ -264,7 +282,7 @@ pub(crate) async fn tts_ms_official_preview_get_controller(
 ) -> Result<HttpResponse, ControllerError> {
     let id = random_string(32);
     debug!("收到 get 请求 /api/tts-ms-subscribe-api {:?}", request);
-    let request_tmp = request.to_ms_request(id.clone());
+    let request_tmp = request.to_ms_request(MsApiOrigin::OfficialPreview, id.clone()).await;
     info!("解析 get 请求 {:?}", request_tmp);
     let re = request_ms_tts("tts_ms_official_preview", request_tmp).await;
     debug!("响应 get 请求 {}", &id);
@@ -278,7 +296,7 @@ pub(crate) async fn tts_ms_official_preview_post_controller(
 ) -> Result<HttpResponse, ControllerError> {
     let id = random_string(32);
     debug!("收到 post 请求 /api/tts-ms-subscribe-api {:?}", body);
-    let request_tmp = body.to_ms_request(id.clone());
+    let request_tmp = body.to_ms_request(MsApiOrigin::OfficialPreview, id.clone()).await;
     info!("解析 post 请求 /api/tts-ms-subscribe-api {:?}", request_tmp);
     let re = request_ms_tts("tts_ms_official_preview", request_tmp).await;
     debug!("响应 post 请求 {}", &id);

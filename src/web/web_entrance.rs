@@ -1,12 +1,9 @@
-use crate::utils::azure_api::{
-    AzureApiEdgeFree, AzureApiPreviewFreeToken, AzureApiSpeakerList, AzureApiSubscribeToken,
-    VoicesItem, MS_TTS_QUALITY_LIST,
-};
+use crate::utils::azure_api::{AzureApiEdgeFree, AzureApiPreviewFreeToken, AzureApiSpeakerList, AzureApiSubscribeToken, VoicesItem, MS_TTS_QUALITY_LIST, MsApiOrigin};
 use crate::web::entity::ApiBaseResponse;
 use crate::web::error::ControllerError;
 use crate::AppArgs;
 use actix_web::{web, HttpRequest, HttpResponse};
-use log::{error, warn};
+use log::{error};
 use mime_guess::from_path;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
@@ -20,14 +17,17 @@ pub(crate) fn register_router(cfg: &mut web::ServiceConfig) {
             .route(web::get().to(get_api_list))
             .route(web::post().to(get_api_list)),
     )
-        .service(web::resource("/api/ms-tts/style/{informant}").route(web::get().to(get_ms_tts_style)))
+        .service(
+            web::resource("/api/ms-tts/style/{api_name}/{informant}")
+                .route(web::get().to(get_ms_tts_style)),
+        )
         .route(
             "/api/ms-tts/informant/{api_name}",
             web::get().to(get_ms_tts_informant),
         )
         .route("/api/ms-tts/quality", web::get().to(get_ms_tts_quality))
         .service(web::resource("/").route(web::get().to(html_index)));
-        // .service(web::resource("/{_:.*}").route(web::get().to(dist)));
+    // .service(web::resource("/{_:.*}").route(web::get().to(dist)));
 }
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -138,66 +138,73 @@ pub(crate) async fn dist(path: web::Path<String>) -> HttpResponse {
 /// /api/ms-tts/informant/{api_name}
 /// 获取微软文本转语音接口发音人列表
 ///
-
 pub(crate) async fn get_ms_tts_informant(
-    _req: HttpRequest,
     path_params: web::Path<String>,
 ) -> Result<HttpResponse, ControllerError> {
-    let api_name = path_params.into_inner();
+    let api_name = MsApiOrigin::try_from(path_params.into_inner()).map_err(|e| {
+        let err = format!("接口配置数据不存在 {:?}", e);
+        error!("{}",err);
+        ControllerError::new(err)
+    })?;
     let args = AppArgs::parse_macro();
-    let ms_tts_data = crate::ms_tts::MS_TTS_CONFIG.get();
-
     let mut list: Vec<ListDataItem> = Vec::new();
 
-    let vices_list = match api_name.as_str() {
-        "ms-tts-edge" => {
+    let vices_list = match api_name {
+        MsApiOrigin::EdgeFree => {
             if args.close_edge_free_api {
                 None
             } else {
-                Some(AzureApiEdgeFree::new()
-                    .get_vices_list()
-                    .await
-                    .map_err(|e| {
-                        let err =
-                            ControllerError::new(format!("获取 ms-tts-edge 接口发音人列表失败 {:?}", e));
-                        error!("{:?}", err);
-                        err
-                    })?)
+                Some(
+                    AzureApiEdgeFree::new()
+                        .get_vices_list()
+                        .await
+                        .map_err(|e| {
+                            let err = ControllerError::new(format!(
+                                "获取 ms-tts-edge 接口发音人列表失败 {:?}",
+                                e
+                            ));
+                            error!("{:?}", err);
+                            err
+                        })?,
+                )
             }
         }
-        "ms-tts-preview" => {
+        MsApiOrigin::OfficialPreview => {
             if args.close_official_preview_api {
                 None
             } else {
-                Some(AzureApiPreviewFreeToken::new()
-                    .get_vices_list()
-                    .await
-                    .map_err(|e| {
-                        let err =
-                            ControllerError::new(format!("获取 ms-tts-preview 接口发音人列表失败 {:?}", e));
-                        error!("{:?}", err);
-                        err
-                    })?)
+                Some(
+                    AzureApiPreviewFreeToken::new()
+                        .get_vices_list()
+                        .await
+                        .map_err(|e| {
+                            let err = ControllerError::new(format!(
+                                "获取 ms-tts-preview 接口发音人列表失败 {:?}",
+                                e
+                            ));
+                            error!("{:?}", err);
+                            err
+                        })?,
+                )
             }
         }
-        "ms-tts-subscribe" => {
+        MsApiOrigin::Subscription => {
             if args.close_official_subscribe_api {
                 None
             } else {
-                Some(AzureApiSubscribeToken::get_vices_mixed_list()
-                    .await
-                    .map_err(|e| {
-                        let err = ControllerError::new(format!(
-                            "获取 ms-tts-subscribe 接口发音人列表失败 {:?}",
-                            e
-                        ));
-                        error!("{:?}", err);
-                        err
-                    })?)
+                Some(
+                    AzureApiSubscribeToken::get_vices_mixed_list()
+                        .await
+                        .map_err(|e| {
+                            let err = ControllerError::new(format!(
+                                "获取 ms-tts-subscribe 接口发音人列表失败 {:?}",
+                                e
+                            ));
+                            error!("{:?}", err);
+                            err
+                        })?,
+                )
             }
-        }
-        _ => {
-            None
         }
     };
     if let None = vices_list {
@@ -261,45 +268,117 @@ pub(crate) async fn get_ms_tts_quality(_req: HttpRequest) -> Result<HttpResponse
 
 //
 // #[get("/ms-tts/style/{informant}")]
+#[derive(Deserialize, Debug)]
+pub(crate) struct PathParams {
+    pub api_name: String,
+    pub informant: String,
+}
 
 pub(crate) async fn get_ms_tts_style(
-    path_params: web::Path<String>,
+    path_params: web::Path<PathParams>,
 ) -> Result<HttpResponse, ControllerError> {
-    let informant = path_params.into_inner();
-    let ms_tts_data = crate::ms_tts::MS_TTS_CONFIG.get();
+    let params = path_params.into_inner();
+    let informant = params.informant;
+    let api_name = MsApiOrigin::try_from(params.api_name).map_err(|e| {
+        let err = format!("接口配置数据不存在 {:?}", e);
+        error!("{}",err);
+        ControllerError::new(err)
+    })?;
+    let args = AppArgs::parse_macro();
 
-    match ms_tts_data {
-        Some(data) => {
-            let mut list_data: Vec<ListDataItem> = Vec::new();
-
-            let voice_item = data.voices_list.by_voices_name_map.get(&informant).unwrap();
-            let vec_style = if voice_item.style_list.is_some() {
-                let mut ff = Vec::new();
-                ff.push("general".to_string());
-                let mut kk = voice_item
-                    .style_list
-                    .as_ref()
-                    .unwrap()
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>();
-                ff.append(&mut kk);
-                ff
+    let vices_list = match api_name {
+        MsApiOrigin::EdgeFree => {
+            if args.close_edge_free_api {
+                None
             } else {
-                let mut ff = Vec::new();
-                ff.push("general".to_string());
-                ff
-            };
-
-            vec_style.iter().for_each(|v| {
-                list_data.push(ListDataItem {
-                    key: v.clone(),
-                    desc: "".to_owned(),
-                    data: serde_json::Value::Null,
-                });
-            });
-            Ok(ApiBaseResponse::success(Some(list_data)).into())
+                Some(
+                    AzureApiEdgeFree::new()
+                        .get_vices_list()
+                        .await
+                        .map_err(|e| {
+                            let err = ControllerError::new(format!(
+                                "获取 ms-tts-edge 接口发音人列表失败 {:?}",
+                                e
+                            ));
+                            error!("{:?}", err);
+                            err
+                        })?,
+                )
+            }
         }
-        None => Err(ControllerError::new("配置数据不存在")),
+        MsApiOrigin::OfficialPreview => {
+            if args.close_official_preview_api {
+                None
+            } else {
+                Some(
+                    AzureApiPreviewFreeToken::new()
+                        .get_vices_list()
+                        .await
+                        .map_err(|e| {
+                            let err = ControllerError::new(format!(
+                                "获取 ms-tts-preview 接口发音人列表失败 {:?}",
+                                e
+                            ));
+                            error!("{:?}", err);
+                            err
+                        })?,
+                )
+            }
+        }
+        MsApiOrigin::Subscription => {
+            if args.close_official_subscribe_api {
+                None
+            } else {
+                Some(
+                    AzureApiSubscribeToken::get_vices_mixed_list()
+                        .await
+                        .map_err(|e| {
+                            let err = ControllerError::new(format!(
+                                "获取 ms-tts-subscribe 接口发音人列表失败 {:?}",
+                                e
+                            ));
+                            error!("{:?}", err);
+                            err
+                        })?,
+                )
+            }
+        }
+    };
+
+    if let None = vices_list {
+        let err = ControllerError::new("配置数据不存在，请查看是否参数正确，或是否开启该接口");
+        error!("{:?}", err);
+        return Err(err);
     }
+    let vices_list = vices_list.unwrap();
+
+    let mut list_data: Vec<ListDataItem> = Vec::new();
+    let voice_item = vices_list.by_voices_name_map.get(&informant).unwrap();
+    let vec_style = if voice_item.style_list.is_some() {
+        let mut ff = Vec::new();
+        ff.push("general".to_string());
+        let mut kk = voice_item
+            .style_list
+            .as_ref()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        ff.append(&mut kk);
+        ff
+    } else {
+        let mut ff = Vec::new();
+        ff.push("general".to_string());
+        ff
+    };
+
+    vec_style.iter().for_each(|v| {
+        list_data.push(ListDataItem {
+            key: v.clone(),
+            desc: "".to_owned(),
+            data: serde_json::Value::Null,
+        });
+    });
+
+    Ok(ApiBaseResponse::success(Some(list_data)).into())
 }
