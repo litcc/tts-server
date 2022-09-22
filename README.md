@@ -2,9 +2,6 @@
 [![CI](https://github.com/litcc/tts-server/actions/workflows/rust.yml/badge.svg)](https://github.com/litcc/tts-server/actions/workflows/rust.yml)
 ![GitHub release (latest by date)](https://img.shields.io/github/downloads/litcc/tts-server/latest/total)
 
-
-
-
 # tts-server
 
 - 本项目目前使用的是 Edge 浏览器“大声朗读”和 Azure TTS 演示页面的接口，以及官方订阅接口，除官方订阅接口外，不保证后续可用性和稳定性。还是强烈推荐使用订阅接口！
@@ -50,4 +47,4 @@
 
 如果只需要为固定的文本生成语音，可以使用有声内容创作。它提供了更丰富的功能可以生成更自然的声音。
 
-本项目仅供学习交流和参考，严禁用于商业用途，请于下载后24小时内删除！
+本项目构建的二进制程序仅供学习交流和参考，严禁用于商业用途，请于下载后24小时内删除！
