@@ -4,8 +4,8 @@ use crate::web::error::ControllerError;
 use crate::AppArgs;
 use actix_web::{web, HttpRequest, HttpResponse};
 use log::{error};
-use mime_guess::from_path;
-use rust_embed::RustEmbed;
+// use mime_guess::from_path;
+// use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 
 ///
@@ -26,9 +26,46 @@ pub(crate) fn register_router(cfg: &mut web::ServiceConfig) {
             web::get().to(get_ms_tts_informant),
         )
         .route("/api/ms-tts/quality", web::get().to(get_ms_tts_quality))
-        .service(web::resource("/").route(web::get().to(html_index)));
+        ;
+    // 等待web UI 适配
+    // .service(web::resource("/").route(web::get().to(html_index)))
     // .service(web::resource("/{_:.*}").route(web::get().to(dist)));
 }
+
+
+// 等待WebUi适配
+/*#[derive(RustEmbed)]
+#[folder = "web/dist/"]
+struct WebAsset;
+
+fn handle_embedded_file(path: &str) -> HttpResponse {
+    // let index_html = WebAsset::get("prefix/index.html").unwrap();
+    //RustEmbed::get()  Asset::get
+    match WebAsset::get(path) {
+        Some(content) => {
+            let kk = content.data;
+            let hh = kk.into_owned();
+            HttpResponse::Ok()
+                .content_type(from_path(path).first_or_octet_stream().as_ref())
+                .body(hh)
+        }
+        None => HttpResponse::NotFound().body("404 Not Found"),
+    }
+}
+
+async fn favicon_ico() -> HttpResponse {
+    handle_embedded_file("favicon.ico")
+}
+
+pub(crate) async fn html_index() -> HttpResponse {
+    handle_embedded_file("index.html")
+}
+
+pub(crate) async fn dist(path: web::Path<String>) -> HttpResponse {
+    let patd = path.into_inner();
+    handle_embedded_file(&patd)
+}*/
+
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct ApiListResponse {
@@ -80,24 +117,7 @@ pub struct ListDataItem {
     data: serde_json::Value,
 }
 
-#[derive(RustEmbed)]
-#[folder = "web/dist/"]
-struct WebAsset;
 
-fn handle_embedded_file(path: &str) -> HttpResponse {
-    // let index_html = WebAsset::get("prefix/index.html").unwrap();
-    //RustEmbed::get()  Asset::get
-    match WebAsset::get(path) {
-        Some(content) => {
-            let kk = content.data;
-            let hh = kk.into_owned();
-            HttpResponse::Ok()
-                .content_type(from_path(path).first_or_octet_stream().as_ref())
-                .body(hh)
-        }
-        None => HttpResponse::NotFound().body("404 Not Found"),
-    }
-}
 
 ///
 /// /api/list
@@ -121,18 +141,7 @@ pub(crate) async fn get_api_list(_req: HttpRequest) -> Result<HttpResponse, Cont
     Ok(ApiBaseResponse::success(Some(api_list)).into())
 }
 
-async fn favicon_ico() -> HttpResponse {
-    handle_embedded_file("favicon.ico")
-}
 
-pub(crate) async fn html_index() -> HttpResponse {
-    handle_embedded_file("index.html")
-}
-
-pub(crate) async fn dist(path: web::Path<String>) -> HttpResponse {
-    let patd = path.into_inner();
-    handle_embedded_file(&patd)
-}
 
 ///
 /// /api/ms-tts/informant/{api_name}
@@ -215,26 +224,9 @@ pub(crate) async fn get_ms_tts_informant(
     let vices_list = vices_list.unwrap();
     vices_list.voices_name_list.iter().for_each(|v| {
         let voice_item = vices_list.by_voices_name_map.get(v).unwrap();
-        let desc = format!(
-            "{} - {} - {}",
-            &voice_item.display_name, &voice_item.local_name, &voice_item.locale_name
-        );
-        let voices_item = VoicesItem {
-            name: voice_item.name.clone(),
-            display_name: voice_item.display_name.clone(),
-            local_name: voice_item.local_name.clone(),
-            short_name: voice_item.short_name.clone(),
-            gender: voice_item.gender.clone(),
-            locale: voice_item.locale.clone(),
-            locale_name: voice_item.locale_name.clone(),
-            style_list: None,
-            sample_rate_hertz: voice_item.sample_rate_hertz.clone(),
-            voice_type: voice_item.voice_type.clone(),
-            status: voice_item.status.clone(),
-            role_play_list: None,
-        };
 
-        let tmp = serde_json::to_value(voices_item).unwrap();
+        let desc = voice_item.get_desc();
+        let tmp = serde_json::to_value(voice_item.as_ref()).unwrap();
 
         list.push(ListDataItem {
             key: v.clone(),
@@ -354,11 +346,11 @@ pub(crate) async fn get_ms_tts_style(
 
     let mut list_data: Vec<ListDataItem> = Vec::new();
     let voice_item = vices_list.by_voices_name_map.get(&informant).unwrap();
-    let vec_style = if voice_item.style_list.is_some() {
+    let vec_style = if voice_item.get_style().is_some() {
         let mut ff = Vec::new();
         ff.push("general".to_string());
         let mut kk = voice_item
-            .style_list
+            .get_style()
             .as_ref()
             .unwrap()
             .iter()

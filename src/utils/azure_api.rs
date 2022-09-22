@@ -25,10 +25,13 @@ use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 use tokio_tungstenite::{client_async_with_config, tungstenite, WebSocketStream};
 
 
+// 发音人配置
+#[allow(dead_code)]
+pub(crate) const AZURE_SPEAKERS_LIST_FILE: &'static [u8] = include_bytes!("../resource/azure_voices_list.json");
 
 // 发音人配置
 #[allow(dead_code)]
-pub(crate) const SPEAKERS_LIST_FILE: &'static [u8] = include_bytes!("../resource/voices_list.json");
+pub(crate) const EDGE_SPEAKERS_LIST_FILE: &'static [u8] = include_bytes!("../resource/edge_voices_list.json");
 
 
 /// 该程序实现的 Api 调用方式
@@ -716,7 +719,7 @@ impl AzureApiSpeakerList for AzureApiSubscribeToken {
                     d
                 } else {
                     warn!("请求 AzureApiSubscribeToken 发音人列表出错，改用缓存数据！");
-                    let data_str = String::from_utf8(SPEAKERS_LIST_FILE.to_vec()).unwrap();
+                    let data_str = String::from_utf8(AZURE_SPEAKERS_LIST_FILE.to_vec()).unwrap();
                     let tmp_list_1: Vec<VoicesItem> = serde_json::from_str(&data_str).unwrap();
                     tmp_list_1
                 };
@@ -845,10 +848,6 @@ impl AzureApiPreviewFreeToken {
         let resp = reqwest::Client::new()
             .get(url)
             .header("Host", "eastus.api.speech.microsoft.com")
-            .header(":scheme", "https")
-            .header(":authority", "eastus.api.speech.microsoft.com")
-            .header(":path", "/cognitiveservices/voices/list")
-            .header(":method", "GET")
             .header("Accept", "*/*")
             .header("accept-encoding", "gzip, deflate, br")
             .header(
@@ -869,11 +868,17 @@ impl AzureApiPreviewFreeToken {
             .header("user-agent", Self::USER_AGENT)
             .send()
             .await
-            .map_err(|e| TTSServerError::ThirdPartyApiCallFailed(format!("{:?}", e.to_string())))?;
+            .map_err(|e| {
+                let err = TTSServerError::ThirdPartyApiCallFailed(format!("{:?}", e));
+                error!("request build err: {:#?}",e);
+                err
+            })?;
 
         let body = if resp.status() == 200 {
             Ok(resp.bytes().await.map_err(|e| {
-                TTSServerError::ProgramError(format!("Error parsing response body! {:?}", e))
+                let err = TTSServerError::ProgramError(format!("Error parsing response body! {:?}", e));
+                error!("{:?}",err);
+                err
             })?)
         } else {
             error!("{:#?}", resp);
@@ -987,7 +992,7 @@ impl AzureApiSpeakerList for AzureApiPreviewFreeToken {
                     d
                 } else {
                     warn!("请求 AzureApiPreviewFreeToken 发音人列表出错，改用缓存数据！");
-                    let data_str = String::from_utf8(SPEAKERS_LIST_FILE.to_vec()).unwrap();
+                    let data_str = String::from_utf8(AZURE_SPEAKERS_LIST_FILE.to_vec()).unwrap();
                     let tmp_list_1: Vec<VoicesItem> = serde_json::from_str(&data_str).unwrap();
                     let mut voice_arc_list = Vec::new();
                     for voice in tmp_list_1 {
@@ -1438,15 +1443,15 @@ impl AzureApiEdgeFree {
                 "X-Edge-Shopping-Flag",
                 "1",
             ).header(
-                "Sec-Fetch-Site",
-                "none",
-            ).header(
-                "Sec-Fetch-Mode",
-                "cors",
-            ).header(
-                "Sec-Fetch-Dest",
-                "empty",
-            )
+            "Sec-Fetch-Site",
+            "none",
+        ).header(
+            "Sec-Fetch-Mode",
+            "cors",
+        ).header(
+            "Sec-Fetch-Dest",
+            "empty",
+        )
             .header("Accept-Encoding", "gzip, deflate, br")
             .header(
                 "Accept-Language",
@@ -1470,7 +1475,6 @@ impl AzureApiEdgeFree {
                 "Third-party interface corresponding error".to_owned(),
             ))
         }?;
-        debug!("{}",String::from_utf8(body.to_vec()).unwrap());
         let voice_list: Vec<VoicesItem> = serde_json::from_slice(&body).map_err(|e| {
             error!("{:?}", e);
             TTSServerError::ProgramError(format!("Failed to deserialize voice list! {:?}", e))
@@ -1494,7 +1498,7 @@ impl AzureApiSpeakerList for AzureApiEdgeFree {
                     d
                 } else {
                     warn!("请求 AzureApiEdgeFree 发音人列表出错，改用缓存数据！");
-                    let data_str = String::from_utf8(SPEAKERS_LIST_FILE.to_vec()).unwrap();
+                    let data_str = String::from_utf8(EDGE_SPEAKERS_LIST_FILE.to_vec()).unwrap();
                     let tmp_list_1: Vec<VoicesItem> = serde_json::from_str(&data_str).unwrap();
                     let mut voice_arc_list = Vec::new();
                     for voice in tmp_list_1 {
@@ -1607,50 +1611,171 @@ pub(crate) async fn get_oauth_token<T>(api_info: &T) -> Result<String, TTSServer
     })?)
 }
 
-///
-/// Azure 官方文本转语音 发音人结构体
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct VoicesItem {
-    #[serde(rename = "Name")]
-    pub name: String,
-    #[serde(rename = "DisplayName", skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
+#[serde(untagged)]
+pub enum VoicesItem {
+    AzureApi {
+        #[serde(rename = "Name")]
+        name: String,
+        #[serde(rename = "DisplayName")]
+        display_name: String,
+        #[serde(rename = "LocalName")]
+        local_name: String,
+        #[serde(rename = "ShortName")]
+        short_name: String,
+        #[serde(rename = "Gender")]
+        gender: String,
+        #[serde(rename = "Locale")]
+        locale: String,
+        #[serde(rename = "LocaleName")]
+        locale_name: String,
+        #[serde(rename = "StyleList", skip_serializing_if = "Option::is_none")]
+        style_list: Option<Vec<String>>,
+        #[serde(rename = "SampleRateHertz")]
+        sample_rate_hertz: String,
+        #[serde(rename = "VoiceType")]
+        voice_type: String,
+        #[serde(rename = "Status")]
+        status: String,
+        #[serde(rename = "RolePlayList", skip_serializing_if = "Option::is_none")]
+        role_play_list: Option<Vec<String>>,
+        #[serde(rename = "WordsPerMinute", skip_serializing_if = "Option::is_none")]
+        words_per_minute: Option<String>,
+    },
+    EdgeApi {
+        #[serde(rename = "Name")]
+        name: String,
+        #[serde(rename = "ShortName")]
+        short_name: String,
+        #[serde(rename = "Gender")]
+        gender: String,
+        #[serde(rename = "Locale")]
+        locale: String,
+        #[serde(rename = "SuggestedCodec")]
+        suggested_codec: String,
+        #[serde(rename = "FriendlyName")]
+        friendly_name: String,
+        #[serde(rename = "Status")]
+        status: String,
+        #[serde(rename = "VoiceTag")]
+        voice_tag: HashMap<String, Vec<String>>,
+    },
+}
 
-    #[serde(rename = "LocalName")]
-    pub local_name: String,
-    #[serde(rename = "ShortName")]
-    pub short_name: String,
-    #[serde(rename = "Gender")]
-    pub gender: String,
-    #[serde(rename = "Locale")]
-    pub locale: String,
-    #[serde(rename = "LocaleName")]
-    pub locale_name: String,
-    #[serde(rename = "StyleList", skip_serializing_if = "Option::is_none")]
-    pub style_list: Option<Vec<String>>,
-    #[serde(rename = "SampleRateHertz")]
-    pub sample_rate_hertz: String,
-    #[serde(rename = "VoiceType")]
-    pub voice_type: String,
-    #[serde(rename = "Status")]
-    pub status: String,
-    #[serde(rename = "RolePlayList", skip_serializing_if = "Option::is_none")]
-    pub role_play_list: Option<Vec<String>>,
 
-    // edge api 接口独立数据
-    #[serde(rename = "FriendlyName", skip_serializing_if = "Option::is_none")]
-    pub friendly_name: Option<String>,
-    #[serde(rename = "SuggestedCodec", skip_serializing_if = "Option::is_none")]
-    pub suggested_codec: Option<String>,
-    #[serde(rename = "WordsPerMinute", skip_serializing_if = "Option::is_none")]
-    pub words_per_minute: Option<Vec<String>>,
-    #[serde(rename = "VoiceTag", skip_serializing_if = "Option::is_none")]
-    pub voice_tag: Option<HashMap<String,Vec<String>>>,
+// ///
+// /// Azure 官方文本转语音 发音人结构体
+// #[derive(Serialize, Deserialize, Clone, Debug)]
+// pub struct VoicesItem {
+//     #[serde(rename = "Name")]
+//     pub name: String,
+//     #[serde(rename = "DisplayName", skip_serializing_if = "Option::is_none")]
+//     pub display_name: Option<String>,
+//
+//     #[serde(rename = "LocalName")]
+//     pub local_name: String,
+//     #[serde(rename = "ShortName")]
+//     pub short_name: String,
+//     #[serde(rename = "Gender")]
+//     pub gender: String,
+//     #[serde(rename = "Locale")]
+//     pub locale: String,
+//     #[serde(rename = "LocaleName")]
+//     pub locale_name: String,
+//     #[serde(rename = "StyleList", skip_serializing_if = "Option::is_none")]
+//     pub style_list: Option<Vec<String>>,
+//     #[serde(rename = "SampleRateHertz")]
+//     pub sample_rate_hertz: String,
+//     #[serde(rename = "VoiceType")]
+//     pub voice_type: String,
+//     #[serde(rename = "Status")]
+//     pub status: String,
+//     #[serde(rename = "RolePlayList", skip_serializing_if = "Option::is_none")]
+//     pub role_play_list: Option<Vec<String>>,
+//
+//     // edge api 接口独立数据
+//     #[serde(rename = "FriendlyName", skip_serializing_if = "Option::is_none")]
+//     pub friendly_name: Option<String>,
+//     #[serde(rename = "SuggestedCodec", skip_serializing_if = "Option::is_none")]
+//     pub suggested_codec: Option<String>,
+//     #[serde(rename = "WordsPerMinute", skip_serializing_if = "Option::is_none")]
+//     pub words_per_minute: Option<Vec<String>>,
+//     #[serde(rename = "VoiceTag", skip_serializing_if = "Option::is_none")]
+//     pub voice_tag: Option<HashMap<String,Vec<String>>>,
+// }
+
+impl VoicesItem {
+    #[inline]
+    pub fn get_short_name(&self) -> String {
+        return match self {
+            VoicesItem::AzureApi { short_name, .. } => { short_name.clone() }
+            VoicesItem::EdgeApi { short_name, .. } => { short_name.clone() }
+        }
+    }
+    #[inline]
+    pub fn get_local(&self) -> &str {
+        return match self {
+            VoicesItem::AzureApi { locale, .. } => { locale.as_str() }
+            VoicesItem::EdgeApi { locale, .. } => { locale.as_str() }
+        }
+    }
+    #[inline]
+    pub fn get_style(&self) -> Option<Vec<String>> {
+        return match self {
+            VoicesItem::AzureApi { style_list, .. } => { style_list.clone() }
+            VoicesItem::EdgeApi { voice_tag, .. } => {
+                if let Some(e0) = voice_tag.get("ContentCategories"){
+                    Some(e0.clone())
+                }else {
+                    None
+                }
+
+            }
+        }
+    }
+
+    pub fn get_desc(&self) -> String{
+        return match self {
+            VoicesItem::AzureApi { voice_type,local_name,display_name, .. } => {
+                if voice_type == "Neural"{
+                    format!("Microsoft {} Online (Natural) - {}",display_name,local_name)
+                }else {
+                    format!("Microsoft {} Online - {}",display_name,local_name)
+                }
+            }
+            VoicesItem::EdgeApi { friendly_name, .. } => {
+                friendly_name.clone()
+            }
+        }
+    }
+
 }
 
 impl PartialEq for VoicesItem {
+    #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.short_name == other.short_name
+        match self {
+            VoicesItem::AzureApi {
+                short_name: short_name1,
+                ..
+            } => {
+                if let VoicesItem::AzureApi { short_name: short_name2, .. } = other {
+                    short_name1 == short_name2
+                } else {
+                    false
+                }
+            }
+            VoicesItem::EdgeApi {
+                short_name: short_name1,
+                ..
+            } => {
+                if let VoicesItem::EdgeApi { short_name: short_name2, .. } = other {
+                    short_name1 == short_name2
+                } else {
+                    false
+                }
+            }
+        }
     }
 }
 
@@ -1701,14 +1826,14 @@ pub(crate) fn collating_list_of_pronouncers(list: Vec<VoicesItem>) -> VoicesList
     list.iter().for_each(|item| {
         let new = Arc::new(item.clone());
         raw_data.push(new.clone());
-        voices_name_list.insert(item.short_name.to_string());
-        by_voices_name_map.insert(item.short_name.to_string(), new);
+        voices_name_list.insert(item.get_short_name());
+        by_voices_name_map.insert(item.get_short_name(), new);
     });
 
     let mut by_locale_map: HashMap<String, Vec<Arc<VoicesItem>>> = HashMap::new();
 
     let new_iter = raw_data.iter();
-    for (key, group) in &new_iter.group_by(|i| i.locale.as_str()) {
+    for (key, group) in &new_iter.group_by(|i| i.get_local()) {
         let mut locale_vec_list: Vec<Arc<VoicesItem>> = Vec::new();
 
         group.for_each(|j| {
@@ -1732,14 +1857,14 @@ pub(crate) fn collating_list_of_pronouncers_arc(raw_data: &Vec<Arc<VoicesItem>>)
 
     raw_data.iter().for_each(|item| {
         let new = item.clone();
-        voices_name_list.insert(item.short_name.to_string());
-        by_voices_name_map.insert(item.short_name.to_string(), new);
+        voices_name_list.insert(item.get_short_name());
+        by_voices_name_map.insert(item.get_short_name(), new);
     });
 
     let mut by_locale_map: HashMap<String, Vec<Arc<VoicesItem>>> = HashMap::new();
 
     let new_iter = raw_data.iter();
-    for (key, group) in &new_iter.group_by(|&i| i.locale.as_str()) {
+    for (key, group) in &new_iter.group_by(|&i| i.get_local()) {
         let mut locale_vec_list: Vec<Arc<VoicesItem>> = Vec::new();
 
         group.for_each(|j| {

@@ -1,6 +1,6 @@
 use log::{error, info, LevelFilter};
 use crate::AppArgs;
-use crate::utils::azure_api::{AzureApiEdgeFree, AzureApiNewWebsocket, AzureApiPreviewFreeToken, AzureApiRegionIdentifier, AzureApiSubscribeToken, AzureAuthKey};
+use crate::utils::azure_api::{AzureApiEdgeFree, AzureApiNewWebsocket, AzureApiPreviewFreeToken, AzureApiRegionIdentifier, AzureApiSubscribeToken, AzureAuthKey, VoicesItem};
 use crate::utils::log::init_test_log;
 
 
@@ -48,9 +48,9 @@ async fn test_azure_api_edge_free() {
     info!("{:?}",args);
     let mut kk2 = AzureApiEdgeFree::new();
 
-    let mut kk3 = kk2.lock().await;
 
-    let jj = kk3.get_connection().await;
+
+    let jj = kk2.get_connection().await;
 
     assert!(jj.is_ok())
 }
@@ -61,13 +61,38 @@ async fn test_azure_api_preview_free() {
     init_test_log(LevelFilter::Debug);
 
     let mut kk2 = AzureApiPreviewFreeToken::new();
-    let mut kk3 = kk2.lock().await;
+    // let mut kk3 = kk2.lock().await;
 
-    let jj = kk3.get_connection().await;
+    let jj = kk2.get_connection().await;
 
     // info!("{:?}",jj);
     // info!("{:?}",oauth_base);
-    drop(kk3);
+    // drop(kk3);
     assert!(jj.is_ok())
 }
+
+/// 官网预览界面 免费接口 Websocket 连接测试
+#[tokio::test]
+async fn test_azure_api_serde_voices_list_data() -> anyhow::Result<()> {
+    init_test_log(LevelFilter::Debug);
+
+    let body = include_bytes!("../resource/azure_voices_list.json");
+    let voice_list: Vec<VoicesItem> = serde_json::from_slice(&body.to_vec()).map_err(|e| {
+        error!("{:?}", e);
+        e
+    })?;
+
+    println!("{:?}",voice_list);
+
+    let body2 = include_bytes!("../resource/edge_voices_list.json");
+    let voice_list2: Vec<VoicesItem> = serde_json::from_slice(&body2.to_vec()).map_err(|e| {
+        error!("{:?}", e);
+        e
+    })?;
+
+    println!("{:?}",voice_list2);
+
+    Ok(())
+}
+
 

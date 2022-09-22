@@ -2,7 +2,6 @@ use clap::{ArgEnum, ArgMatches, Command, Parser, PossibleValue, ValueEnum};
 use log::LevelFilter;
 use once_cell::sync::OnceCell;
 
-
 #[derive(Parser, Debug)]
 #[clap(
 name = env!("CARGO_PKG_NAME"),
@@ -43,14 +42,23 @@ pub struct AppArgs {
     #[clap(long, parse(from_flag))]
     pub close_official_subscribe_api: bool,
 
+    /// 对订阅API添加独立认证token
+    #[clap(long, value_name = "token")]
+    pub subscribe_api_auth_token: Option<String>,
+
     /// 指定不从官方更新最新发音人 (可以快速使用本地缓存启动程序)
     #[clap(long, parse(from_flag))]
     pub do_not_update_speakers_list: bool,
 
+    /// 指定订阅API的官方订阅密钥以及地域， 可添加多个，遍历使用，格式：{subscribe_key},{region}   例： --subscribe-key 956d0b8cb34e4kb1b9cb8c614d313ae3,southeastasia
     #[clap(long)]
     pub subscribe_key: Vec<String>,
 
-    /// 是否开启 debug 日志
+    /// 是否启用 webUI
+    #[clap(long, parse(from_flag))]
+    pub web_ui: bool,
+
+    /// 是否开启 debug 日志  可用参数有: Off, Error, Warn, Info, Debug, Trace
     #[clap(long, default_value_t = LevelFilter::Info)]
     pub log_level: LevelFilter,
 

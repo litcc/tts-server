@@ -13,6 +13,7 @@ use urlencoding::decode as url_decode;
 use crate::utils::azure_api::{AzureApiEdgeFree, AzureApiPreviewFreeToken, AzureApiSpeakerList, AzureApiSubscribeToken, MS_TTS_QUALITY_LIST, MsApiOrigin, MsTtsMsgRequest};
 use crate::web::entity::ApiBaseResponse;
 use crate::web::error::ControllerError;
+use crate::web::middleware::AuthTokenValue;
 
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
@@ -29,9 +30,12 @@ pub struct MsTtsMsgRequestJson {
     pub pitch: Option<f32>,
     // 音频格式
     pub quality: Option<String>,
+    /// 认证 Token
+    pub token: Option<String>,
     // text_replace_list:Vec<String>,
     // phoneme_list:Vec<String>
 }
+
 
 impl MsTtsMsgRequestJson {
     pub async fn to_ms_request(
@@ -138,7 +142,7 @@ impl MsTtsMsgRequestJson {
         let style_value: String = {
             let default = "general".to_owned();
             if let Some(style) = &self.style {
-                match &informant_item.style_list {
+                match &informant_item.get_style() {
                     Some(e) => {
                         let s_t = style.to_lowercase();
                         if e.contains(&s_t) {
@@ -216,9 +220,21 @@ impl MsTtsMsgRequestJson {
     }
 }
 
+
+impl AuthTokenValue for MsTtsMsgRequestJson {
+    fn get_token(&self) -> Option<&str> {
+        if self.token.is_some(){
+            Some(self.token.as_ref().unwrap())
+        }else {
+            None
+        }
+    }
+}
+
+
+
+
 /// 监听
-
-
 pub(crate) async fn tts_ms_post_controller(
     _req: HttpRequest,
     body: web::Json<MsTtsMsgRequestJson>,
@@ -332,6 +348,7 @@ async fn request_ms_tts(api_name: &str, data: Result<MsTtsMsgRequest, Controller
         }
         Err(e) => {
             if e.msg == "文本为空" {
+                warn!("请求文本为空");
                 let mut respone = HttpResponse::build(StatusCode::OK)
                     .body(crate::ms_tts::BLANK_MUSIC_FILE.to_vec());
                 respone.headers_mut().insert(
@@ -340,6 +357,7 @@ async fn request_ms_tts(api_name: &str, data: Result<MsTtsMsgRequest, Controller
                 );
                 Ok(respone)
             } else {
+                error!("调用错误：{:?}",e);
                 Err(e)
             }
         }

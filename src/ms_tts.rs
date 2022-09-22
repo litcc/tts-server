@@ -1,15 +1,11 @@
 use bytes::{BufMut, Bytes, BytesMut};
-use clap::Parser;
 use event_bus::message::IMessage;
-use fancy_regex::Regex;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
-use itertools::Itertools;
-use log::{debug, error, info, trace, warn};
+use log::{debug, error, trace};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::error::Error;
+use std::collections::{HashMap};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -23,7 +19,7 @@ use tokio_tungstenite::WebSocketStream;
 use crate::utils::azure_api::{
     AzureApiEdgeFree, AzureApiGenerateXMML, AzureApiNewWebsocket, AzureApiPreviewFreeToken,
     AzureApiRegionIdentifier, AzureApiSpeakerList, AzureApiSubscribeToken, AzureSubscribeKey,
-    MsTtsMsgRequest, VoicesItem, VoicesList, MS_TTS_QUALITY_LIST,
+    MsTtsMsgRequest, VoicesList, MS_TTS_QUALITY_LIST,
 };
 use crate::utils::binary_search;
 use crate::AppArgs;
@@ -101,8 +97,8 @@ pub struct MsTtsCache {
 
 #[derive(Debug)]
 pub struct MsSocketInfo<T>
-where
-    T: AzureApiSpeakerList + AzureApiNewWebsocket + AzureApiGenerateXMML,
+    where
+        T: AzureApiSpeakerList + AzureApiNewWebsocket + AzureApiGenerateXMML,
 {
     azure_api: Arc<T>,
     tx: Arc<Mutex<Option<WebsocketRt>>>,
@@ -139,6 +135,8 @@ pub(crate) async fn register_service() {
         });
         /// edge 免费接口 新请求限制措施
         static MS_TTS_GET_NEW_EDGE_FREE: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
+
+        AzureApiEdgeFree::new().get_vices_list().await.unwrap();
 
         crate::GLOBAL_EB
             .consumer("tts_ms_edge_free", |fn_msg| async move {
@@ -182,7 +180,7 @@ pub(crate) async fn register_service() {
                                     tx_tmp1,
                                     MS_TTS_DATA_CACHE_EDGE_FREE.clone(),
                                 )
-                                .await;
+                                    .await;
                             });
                             trace!("准备跳出循环");
                             break 'outer;
@@ -224,7 +222,7 @@ pub(crate) async fn register_service() {
                 let socket = gg.as_mut();
                 if let Some(s) = socket {
                     for i in xmml {
-                        debug!("xmml data: {}", &i);
+                        debug!("\n >>>>>>>>>>  xmml data\n{}\n <<<<<<<<<<\n", &i);
                         s.send(Message::Text(i)).await.unwrap();
                     }
                     drop(gg)
@@ -251,8 +249,8 @@ pub(crate) async fn register_service() {
         static MS_TTS_GET_NEW_OFFICIAL_PREVIEW: Lazy<AtomicBool> =
             Lazy::new(|| AtomicBool::new(false));
 
-        // const info: Arc<Mutex<AzureApiPreviewFreeToken>> = Arc::new(Mutex::new(AzureApiPreviewFreeToken::new()));
-        // let clone_info = info.clone();
+        AzureApiPreviewFreeToken::new().get_vices_list().await.unwrap();
+
         crate::GLOBAL_EB
             .consumer("tts_ms_official_preview", |fn_msg| async move {
                 let eb_msg = fn_msg.msg.clone();
@@ -298,7 +296,7 @@ pub(crate) async fn register_service() {
                                     tx_tmp1,
                                     MS_TTS_DATA_CACHE_OFFICIAL_PREVIEW.clone(),
                                 )
-                                .await;
+                                    .await;
                             });
                             trace!("准备跳出循环");
                             break 'outer;
@@ -345,7 +343,7 @@ pub(crate) async fn register_service() {
                 let socket = gg.as_mut();
                 if let Some(s) = socket {
                     for i in xmml {
-                        debug!("xmml data: {}", &i);
+                        debug!("\n >>>>>>>>>>  xmml data\n{}\n <<<<<<<<<<\n", &i);
                         s.send(Message::Text(i)).await.unwrap();
                     }
                     drop(gg)
@@ -378,9 +376,6 @@ pub(crate) async fn register_service() {
         static SOCKET_TX_MAP_OFFICIAL_SUBSCRIBE: OnceCell<
             Mutex<HashMap<String, Arc<MsSocketInfo<AzureApiSubscribeToken>>>>,
         > = OnceCell::const_new();
-        //AtomicBool::new(false)
-        // static SOCKET_TX_OFFICIAL_SUBSCRIBE: OnceCell<Arc<Mutex<Option<WebsocketRt>>>> =
-        //OnceCell::const_new();
 
         // 设定程序配置的订阅key
         SOCKET_TX_MAP_OFFICIAL_SUBSCRIBE
@@ -411,13 +406,6 @@ pub(crate) async fn register_service() {
             let kk = HashMap::new();
             Arc::new(Mutex::new(kk))
         });
-
-        #[macro_export]
-        macro_rules! get_subscribe_api_cache {
-            () => {
-                SOCKET_TX_MAP_OFFICIAL_SUBSCRIBE.get().unwrap().lock().await
-            };
-        }
 
         #[macro_export]
         macro_rules! get_subscribe_api_tx_for_map {
@@ -508,8 +496,14 @@ pub(crate) async fn register_service() {
                                     tx_tmp1,
                                     MS_TTS_DATA_CACHE_OFFICIAL_SUBSCRIBE.clone(),
                                 )
-                                .await;
-                                *OFFICIAL_SUBSCRIBE_API_USE_INDEX.lock().await += 1;
+                                    .await;
+                                // 更新下一次进行连接的 Api 下标
+                                let num = *OFFICIAL_SUBSCRIBE_API_USE_INDEX.lock().await + 1;
+                                if num > OFFICIAL_SUBSCRIBE_API_LIST.get().unwrap().len() {
+                                    *OFFICIAL_SUBSCRIBE_API_USE_INDEX.lock().await = 0;
+                                } else {
+                                    *OFFICIAL_SUBSCRIBE_API_USE_INDEX.lock().await = num;
+                                }
                             });
                             trace!("准备跳出循环");
                             break 'outer;
@@ -519,8 +513,6 @@ pub(crate) async fn register_service() {
                             result = AzureApiPreviewFreeToken::new().get_connection().await;
                         }
                     }
-                    trace!("循环已跳出");
-
                     trace!("循环已跳出");
                     key_info.new.store(false, Ordering::Release)
                 } else {
@@ -558,7 +550,7 @@ pub(crate) async fn register_service() {
                 let socket = gg.as_mut();
                 if let Some(s) = socket {
                     for i in xmml {
-                        debug!("xmml data: {}", &i);
+                        debug!("\n >>>>>>>>>>  xmml data\n{}\n <<<<<<<<<<\n", &i);
                         s.send(Message::Text(i)).await.unwrap();
                     }
                     drop(gg)
@@ -595,8 +587,7 @@ async fn process_response_body(
                     Message::Text(s) => {
                         let id = s[12..44].to_string();
                         // info!("到消息: {}", id);
-                        if let Some(_i) = s.find("Path:turn.start") {
-                        } else if let Some(_i) = s.find("Path:turn.end") {
+                        if let Some(_i) = s.find("Path:turn.start") {} else if let Some(_i) = s.find("Path:turn.end") {
                             trace!("响应 {}， 结束", id);
                             let data = { cache_db.lock().await.remove(&id) };
                             if let Some(data) = data {
