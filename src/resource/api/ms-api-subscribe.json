@@ -22,7 +22,7 @@
       "param_type": "List",
       "param_name": "style",
       "param_desc": "音频风格",
-      "list_data_url": "/api/ms-tts/style/{{informant}}"
+      "list_data_url": "/api/ms-tts/style/{{api_name}}/{{informant}}"
     },
     {
       "index": 3,

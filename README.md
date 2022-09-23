@@ -1,4 +1,4 @@
-[//]: # (![MIT]&#40;https://img.shields.io/badge/license-MIT-green&#41;)
+![MIT](https://img.shields.io/badge/license-MIT-green)
 [![CI](https://github.com/litcc/tts-server/actions/workflows/rust.yml/badge.svg)](https://github.com/litcc/tts-server/actions/workflows/rust.yml)
 ![GitHub release (latest by date)](https://img.shields.io/github/downloads/litcc/tts-server/latest/total)
 

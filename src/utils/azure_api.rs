@@ -1553,8 +1553,8 @@ impl AzureApiGenerateXMML for AzureApiEdgeFree {
             let time = format!("{:?}", create_time);
             let mut msg2 = String::new();
             msg2.push_str(format!("X-RequestId:{}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:{}\r\nPath:ssml\r\n\r\n", &data.request_id, &time).as_str());
-            msg2.push_str(format!("<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='https://www.w3.org/2001/mstts' xml:lang='en-US'><voice name='{}'><prosody pitch='+0Hz' rate ='+0%' volume='+0%'>{}</prosody></voice></speak>",
-                                  data.informant, data.text).as_str());
+            msg2.push_str(format!("<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='https://www.w3.org/2001/mstts' xml:lang='en-US'><voice name='{}'><prosody pitch='+0Hz' rate ='{}%' volume='+0%'>{}</prosody></voice></speak>",
+                                  data.informant,data.rate, data.text).as_str());
             xmml_data.push(msg2);
             Ok(xmml_data)
         })

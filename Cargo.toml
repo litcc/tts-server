@@ -1,14 +1,22 @@
 [package]
 name = "tts-server"
-version = "0.3.0"
+version = "0.3.1"
 authors = ["litcc"]
 edition = "2021"
 readme = "README.md"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 description = """TTS Api Server 软件仅供学习交流，严禁用于商业用途，请于24小时内删除！
+
+微软官方的 Azure TTS 服务目前拥有一定的免费额度，如果免费额度对你来说够用的话，请支持官方的服务。
+
+如果只需要为固定的文本生成语音，可以使用有声内容创作。它提供了更丰富的功能可以生成更自然的声音。
+
+本项目构建的二进制程序仅供学习交流和参考，严禁用于商业用途，请于下载后24小时内删除！
+
 目前已实现接口有：[微软文本转语音] 后续看情况可能会再加入其他接口。
-具体使用方法请看 --help 中参数介绍，以及开源项目中 README.md 文档
+
+具体使用方法请看 --help 中参数介绍，以及项目中 help.md 文档
 """
 
 

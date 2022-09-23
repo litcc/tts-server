@@ -16,6 +16,15 @@
       "param_name": "informant",
       "param_desc": "发音人",
       "list_data_url": "/api/ms-tts/informant/{{api_name}}"
+    },
+    {
+      "index": 3,
+      "param_type": "Float",
+      "param_name": "rate",
+      "param_desc": "语速",
+      "min_value": 0.0,
+      "max_value": 3.0,
+      "default_value": 1.0
     }
   ]
 }
