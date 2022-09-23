@@ -41,8 +41,8 @@ tokio-native-tls = "0.3.0"
 tokio-tungstenite = { version = "0.17.2", features = ["native-tls"] }
 tokio = { version = "1.21.1", features = ["full"] } # 协程库
 mime_guess = "2.0.4"  # 文件类型检测
-event_bus = { path = "/mnt/work/code/Me/Rust/EventBus" }
-#event_bus = { git = "https://github.com/litcc/event_bus.git" }
+#event_bus = { path = "/mnt/work/code/Me/Rust/EventBus" }
+event_bus = { git = "https://github.com/litcc/event_bus.git" }
 chrono = "0.4.22" # 时间库
 async-trait = "0.1.57"
 base64 = "0.13.0"
