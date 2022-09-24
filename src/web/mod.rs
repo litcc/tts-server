@@ -27,23 +27,34 @@ pub(crate) async fn register_service() {
         let mut app = app.wrap(Compress::default());
 
         // 微软 TTS 文本转语音 相关接口
-        app = app.service(
-            // 新版本网页接口地址 （使用api收费访问）
-            web::resource("/api/tts-ms-subscribe-api")
-                .wrap(Condition::new(args.subscribe_api_auth_token.is_some(), TokenAuthentication::<MsTtsMsgRequestJson>::default()))
-                .route(web::get().to(tts_ms_subscribe_api_get_controller))
-                .route(web::post().to(tts_ms_subscribe_api_post_controller)),
-        ).service(
-            // 新版本网页接口地址 （免费预览）
-            web::resource("/api/tts-ms-official-preview")
-                .route(web::get().to(tts_ms_official_preview_get_controller))
-                .route(web::post().to(tts_ms_official_preview_post_controller)),
-        ).service(
-            // 旧版本 edge 预览接口
-            web::resource("/api/tts-ms-edge")
-                .route(web::get().to(tts_ms_get_controller))
-                .route(web::post().to(tts_ms_post_controller)),
-        );
+
+        if !args.close_official_subscribe_api{
+            app = app.service(
+                // 新版本网页接口地址 （使用api收费访问）
+                web::resource("/api/tts-ms-subscribe-api")
+                    .wrap(Condition::new(args.subscribe_api_auth_token.is_some(), TokenAuthentication::<MsTtsMsgRequestJson>::default()))
+                    .route(web::get().to(tts_ms_subscribe_api_get_controller))
+                    .route(web::post().to(tts_ms_subscribe_api_post_controller)),
+            )
+        }
+
+        if !args.close_official_preview_api{
+            app = app.service(
+                // 新版本网页接口地址 （免费预览）
+                web::resource("/api/tts-ms-official-preview")
+                    .route(web::get().to(tts_ms_official_preview_get_controller))
+                    .route(web::post().to(tts_ms_official_preview_post_controller)),
+            )
+        }
+
+        if !args.close_edge_free_api{
+            app = app.service(
+                // 旧版本 edge 预览接口
+                web::resource("/api/tts-ms-edge")
+                    .route(web::get().to(tts_ms_get_controller))
+                    .route(web::post().to(tts_ms_post_controller)),
+            );
+        }
 
         // 根据功能
         // #[cfg(feature = "web-entrance")]

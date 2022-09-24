@@ -1,4 +1,4 @@
-use crate::{info, random_string};
+use crate::{AppArgs, info, random_string};
 use actix_web::http::{StatusCode};
 use actix_web::{web, App, HttpRequest, HttpResponse, HttpServer};
 use fancy_regex::Regex;
@@ -10,6 +10,7 @@ use actix_web::body::BoxBody;
 use itertools::Itertools;
 use crate::ms_tts::{MsTtsMsgResponse};
 use urlencoding::decode as url_decode;
+use crate::error::TTSServerError;
 use crate::utils::azure_api::{AzureApiEdgeFree, AzureApiPreviewFreeToken, AzureApiSpeakerList, AzureApiSubscribeToken, MS_TTS_QUALITY_LIST, MsApiOrigin, MsTtsMsgRequest};
 use crate::web::entity::ApiBaseResponse;
 use crate::web::error::ControllerError;
@@ -43,6 +44,7 @@ impl MsTtsMsgRequestJson {
         api_name: MsApiOrigin,
         request_id_value: String,
     ) -> Result<MsTtsMsgRequest, ControllerError> {
+        let args = AppArgs::parse_macro();
         let text_value: String = {
             let mut text_tmp1 = self.text.as_str().to_string();
             // url 解码
@@ -103,13 +105,27 @@ impl MsTtsMsgRequestJson {
 
         let ms_informant_list = match api_name {
             MsApiOrigin::EdgeFree => {
-                AzureApiEdgeFree::new().get_vices_list().await
+                if !args.close_edge_free_api{
+                    AzureApiEdgeFree::new().get_vices_list().await
+                }else {
+                    Err(TTSServerError::ProgramError("未开启 ms-tts-edge 接口，请勿调用".to_owned()))
+                }
             }
             MsApiOrigin::OfficialPreview => {
-                AzureApiPreviewFreeToken::new().get_vices_list().await
+                if !args.close_official_preview_api{
+                    AzureApiPreviewFreeToken::new().get_vices_list().await
+                }else {
+                    Err(TTSServerError::ProgramError("未开启 ms-tts-preview 接口，请勿调用".to_owned()))
+                }
+
             }
             MsApiOrigin::Subscription => {
-                AzureApiSubscribeToken::get_vices_mixed_list().await
+                if !args.close_official_subscribe_api{
+                    AzureApiSubscribeToken::get_vices_mixed_list().await
+                }else {
+                    Err(TTSServerError::ProgramError("未开启 ms-tts-subscribe 接口，请勿调用".to_owned()))
+                }
+
             }
         }.map_err(|e| {
             let err = ControllerError::new(format!("获取发音人数据错误 {:?}", e));
