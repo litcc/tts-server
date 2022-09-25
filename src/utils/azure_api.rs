@@ -1028,8 +1028,9 @@ impl AzureApiNewWebsocket for AzureApiPreviewFreeToken {
                 ))
                 .build()
                 .map_err(|e| {
-                    error!("{:?}", e);
-                    TTSServerError::ProgramError(format!("uri build error {:?}", e))
+                    let err = format!("AzureApiPreviewFreeToken 请求端点构建失败 {:?}", e);
+                    error!("{}", err);
+                    TTSServerError::ProgramError(err)
                 })?;
 
             let request_builder = Request::builder()
@@ -1056,8 +1057,9 @@ impl AzureApiNewWebsocket for AzureApiPreviewFreeToken {
                 )
                 .version(Version::HTTP_11);
             let request = request_builder.body(()).map_err(|e| {
-                error!("{:?}", e);
-                TTSServerError::ProgramError(format!("request_builder build error {:?}", e))
+                let err = format!("AzureApiPreviewFreeToken 请求体构建失败 {:?}", e);
+                error!("{}", err);
+                TTSServerError::ProgramError(err)
             })?;
 
             // let jj = native_tls::TlsConnector::new().unwrap();
@@ -1065,24 +1067,27 @@ impl AzureApiNewWebsocket for AzureApiPreviewFreeToken {
                 .use_sni(false)
                 .build()
                 .map_err(|e| {
-                    error!("{:?}", e);
-                    TTSServerError::ProgramError(format!("创建Tcp连接失败! {:?}", e))
+                    let err = format!("创建Tcp连接失败! {:?}", e);
+                    error!("{}", err);
+                    TTSServerError::ProgramError(err)
                 })?;
             let config = tokio_native_tls::TlsConnector::from(jj);
 
             let sock = TcpStream::connect(format!("{}:443", &connect_domain))
                 .await
                 .map_err(|e| {
-                    error!("{:?}", e);
-                    TTSServerError::ProgramError(format!(
+                    let err = format!(
                         "连接到微软服务器发生异常，tcp握手失败! 请检查网络! {:?}",
                         e
-                    ))
+                    );
+                    error!("{}", err);
+                    TTSServerError::ProgramError(err)
                 })?;
 
             let tsl_stream = config.connect(&connect_domain, sock).await.map_err(|e| {
-                error!("{:?}", e);
-                TTSServerError::ProgramError(format!("tsl 握手失败! {:?}", e))
+                let err = format!("tsl 握手失败! {:?}", e);
+                error!("{}", err);
+                TTSServerError::ProgramError(err)
             })?;
 
             let websocket = client_async_with_config(
@@ -1097,8 +1102,9 @@ impl AzureApiNewWebsocket for AzureApiPreviewFreeToken {
             )
                 .await
                 .map_err(|e| {
-                    error!("{:?}", e);
-                    TTSServerError::ProgramError(format!("websocket 握手失败! {:?}", e))
+                    let err = format!("websocket 握手失败! {:?}", e);
+                    error!("{}", err);
+                    TTSServerError::ProgramError(err)
                 })?;
 
             let mut new_socket = websocket.0;
@@ -1118,8 +1124,9 @@ impl AzureApiNewWebsocket for AzureApiPreviewFreeToken {
                 .send(tungstenite::Message::Text(msg1))
                 .await
                 .map_err(|e| {
-                    error!("发送配置数据错误; {:?}", e);
-                    TTSServerError::ProgramError("发送配置数据错误".to_owned())
+                    let err = "发送配置数据错误".to_owned();
+                    error!("{}", err);
+                    TTSServerError::ProgramError(err)
                 })?;
 
             Ok(new_socket)
@@ -1170,55 +1177,37 @@ impl AzureApiEdgeFree {
     ];
 
     #[allow(dead_code)]
-    pub(crate) const MS_TTS_SERVER_CHINA_LIST: [&'static str; 7] = [
+    pub(crate) const MS_TTS_SERVER_CHINA_LIST: [&'static str; 6] = [
         // 北京节点
         "202.89.233.100",
         "202.89.233.101",
         "202.89.233.102",
         "202.89.233.103",
         "202.89.233.104",
-        // 国内其他地点
-        "47.95.21.44",
         "182.61.148.24",
-        //	国内无法访问
-        // "171.117.98.148",
-        // "103.36.193.41",
-        // "159.75.112.15",
-        // "149.129.90.244",
-        // "111.229.238.112",
     ];
 
     #[allow(dead_code)]
-    pub(crate) const MS_TTS_SERVER_CHINA_HK_LIST: [&'static str; 12] = [
-        // 北京节点
+    pub(crate) const MS_TTS_SERVER_CHINA_HK_LIST: [&'static str; 8] = [
         "149.129.121.248",
-        "103.200.112.245",
-        "47.90.51.125",
-        "61.239.177.5",
+        // "103.200.112.245",
+        // "47.90.51.125",
+        // "61.239.177.5",
         "149.129.88.238",
         "103.68.61.91",
         "47.75.141.93",
-        "34.96.186.48",
+        // "34.96.186.48",
         "47.240.87.168",
         "47.57.114.186",
         "150.109.51.247",
-        "20.205.113.91",
+        // "20.205.113.91",
+        "35.241.115.60",
     ];
 
     #[allow(dead_code)]
-    pub(crate) const MS_TTS_SERVER_CHINA_TW_LIST: [&'static str; 12] = [
-        "114.46.156.231",
+    pub(crate) const MS_TTS_SERVER_CHINA_TW_LIST: [&'static str; 2] = [
         "34.81.240.201",
         "34.80.106.199",
-        "35.234.55.34",
-        "130.211.254.124",
-        "35.221.158.89",
-        "104.199.252.57",
-        "114.46.224.80",
-        "114.46.192.185",
-        "35.194.227.105",
-        "114.46.184.44",
-        "114.46.186.185",
     ];
 
     const USER_AGENT: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.5005.63 Safari/537.36 Edg/102.0.1245.39";
@@ -1352,6 +1341,7 @@ impl AzureApiEdgeFree {
         // let jj = native_tls::TlsConnector::new().unwrap();
         let jj = native_tls::TlsConnector::builder()
             .use_sni(false)
+            .danger_accept_invalid_certs(true)
             .build()
             .unwrap();
 
@@ -1534,8 +1524,9 @@ impl AzureApiNewWebsocket for AzureApiEdgeFree {
                 .send(tungstenite::Message::Text(msg1))
                 .await
                 .map_err(|e| {
-                    error!("发送配置数据错误; {:?}", e);
-                    TTSServerError::ProgramError("发送配置数据错误".to_owned())
+                    let err = format!("发送配置数据错误; {:?}", e);
+                    error!("{}",err);
+                    TTSServerError::ProgramError(err)
                 })?;
             Ok(new_socket)
         })
@@ -1554,7 +1545,7 @@ impl AzureApiGenerateXMML for AzureApiEdgeFree {
             let mut msg2 = String::new();
             msg2.push_str(format!("X-RequestId:{}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:{}\r\nPath:ssml\r\n\r\n", &data.request_id, &time).as_str());
             msg2.push_str(format!("<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='https://www.w3.org/2001/mstts' xml:lang='en-US'><voice name='{}'><prosody pitch='+0Hz' rate ='{}%' volume='+0%'>{}</prosody></voice></speak>",
-                                  data.informant,data.rate, data.text).as_str());
+                                  data.informant, data.rate, data.text).as_str());
             xmml_data.push(msg2);
             Ok(xmml_data)
         })
@@ -1710,45 +1701,43 @@ impl VoicesItem {
         return match self {
             VoicesItem::AzureApi { short_name, .. } => { short_name.clone() }
             VoicesItem::EdgeApi { short_name, .. } => { short_name.clone() }
-        }
+        };
     }
     #[inline]
     pub fn get_local(&self) -> &str {
         return match self {
             VoicesItem::AzureApi { locale, .. } => { locale.as_str() }
             VoicesItem::EdgeApi { locale, .. } => { locale.as_str() }
-        }
+        };
     }
     #[inline]
     pub fn get_style(&self) -> Option<Vec<String>> {
         return match self {
             VoicesItem::AzureApi { style_list, .. } => { style_list.clone() }
             VoicesItem::EdgeApi { voice_tag, .. } => {
-                if let Some(e0) = voice_tag.get("ContentCategories"){
+                if let Some(e0) = voice_tag.get("ContentCategories") {
                     Some(e0.clone())
-                }else {
+                } else {
                     None
                 }
-
             }
-        }
+        };
     }
 
-    pub fn get_desc(&self) -> String{
+    pub fn get_desc(&self) -> String {
         return match self {
-            VoicesItem::AzureApi { voice_type,local_name,display_name, .. } => {
-                if voice_type == "Neural"{
-                    format!("Microsoft {} Online (Natural) - {}",display_name,local_name)
-                }else {
-                    format!("Microsoft {} Online - {}",display_name,local_name)
+            VoicesItem::AzureApi { voice_type, local_name, display_name, .. } => {
+                if voice_type == "Neural" {
+                    format!("Microsoft {} Online (Natural) - {}", display_name, local_name)
+                } else {
+                    format!("Microsoft {} Online - {}", display_name, local_name)
                 }
             }
             VoicesItem::EdgeApi { friendly_name, .. } => {
                 friendly_name.clone()
             }
-        }
+        };
     }
-
 }
 
 impl PartialEq for VoicesItem {

@@ -61,7 +61,8 @@ async fn main_async() -> Result<()> {
 static GLOBAL_RT: OnceCell<Runtime> = OnceCell::new();
 
 fn main() -> Result<()> {
-    init_log(LevelFilter::Debug,None,None);
+    let args = AppArgs::parse_macro();
+    init_log(args.log_level,Some(args.log_to_file),Some(&args.log_path),None);
 
     GLOBAL_RT
         .get_or_init(|| {

@@ -11,7 +11,7 @@ use actix_web::middleware::{Compress, Condition};
 use actix_web::{web, App, HttpServer};
 use log::{error, info};
 use crate::AppArgs;
-use crate::web::middleware::TokenAuthentication;
+use crate::web::middleware::{ErrorHandle, TokenAuthentication};
 
 // #[cfg(feature = "web-entrance")]
 use crate::web::web_entrance::register_router;
@@ -23,8 +23,8 @@ use crate::web::web_entrance::register_router;
 pub(crate) async fn register_service() {
     let args = AppArgs::parse_macro();
     let web_server = HttpServer::new(|| {
-        let mut app = App::new();
-        let mut app = app.wrap(Compress::default());
+        let app = App::new();
+        let mut app = app.wrap(ErrorHandle).wrap(Compress::default());
 
         // 微软 TTS 文本转语音 相关接口
 

@@ -10,7 +10,7 @@ about = env!("CARGO_PKG_DESCRIPTION"),
 author = env!("CARGO_PKG_AUTHORS"),
 )]
 pub struct AppArgs {
-    /// 指定连接渠道
+    /// 指定连接渠道， 可加速 Edge 接口请求速度
     #[clap(long, arg_enum, value_name = "area", default_value_t = ServerArea::Default)]
     pub server_area: ServerArea,
 
