@@ -1234,10 +1234,10 @@ impl AzureApiEdgeFree {
             let args = AppArgs::test_parse_macro(&[]);
         #[cfg(not(test))]
             let args = AppArgs::parse_macro();
-        println!("参数 {:#?}", args);
+        debug!("指定加速ip {:#?}", args.server_area);
         match args.server_area {
             ServerArea::Default => {
-                info!("连接至官方服务器");
+                info!("连接至官方服务器, 根据 dns 解析");
                 Self::new_websocket_by_select_server(None).await
                 // new_websocket_by_select_server(Some("171.117.98.148")).await
             }
