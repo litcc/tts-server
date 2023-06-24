@@ -1,16 +1,20 @@
-use std::pin::Pin;
-use std::task::{Context, Poll};
-use actix_web::body::{BoxBody, MessageBody};
-use actix_web::http::{header, StatusCode};
-use actix_web::http::header::HeaderValue;
-use actix_web::HttpResponse;
+use std::{
+    pin::Pin,
+    task::{Context, Poll},
+};
+
+use actix_web::{
+    body::{BoxBody, MessageBody},
+    http::{header, header::HeaderValue, StatusCode},
+    HttpResponse,
+};
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, PartialEq, Debug)]
 pub struct ApiBaseResponse<T>
-    where
-        T: Serialize,
+where
+    T: Serialize,
 {
     pub code: i32,
     // #[serde(skip_serializing_if = "Option::is_none")]
@@ -19,8 +23,8 @@ pub struct ApiBaseResponse<T>
 }
 
 impl<T> ToString for ApiBaseResponse<T>
-    where
-        T: Serialize,
+where
+    T: Serialize,
 {
     fn to_string(&self) -> String {
         serde_json::to_string(&self).unwrap()
@@ -29,38 +33,36 @@ impl<T> ToString for ApiBaseResponse<T>
 
 #[allow(dead_code)]
 impl<T> ApiBaseResponse<T>
-    where
-        T: Serialize,
+where
+    T: Serialize,
 {
     #[allow(dead_code)]
     pub fn success(data: Option<T>) -> ApiBaseResponse<T> {
         ApiBaseResponse {
             code: 200,
-            data: Option::<T>::from(data),
+            data,
             msg: "success".to_owned(),
         }
     }
 
     #[allow(dead_code)]
-    pub fn error<Y:Into<String>>(msg: Y) -> ApiBaseResponse<T> {
-        let df = ApiBaseResponse {
-            code: 500,
-            data: Option::<T>::from(None),
-            msg: msg.into(),
-        };
-        df
-    }
-
-    #[allow(dead_code)]
-    pub fn error_by_status_code<Y:Into<String>>(code: i32, msg: Y) -> ApiBaseResponse<T> {
+    pub fn error<Y: Into<String>>(msg: Y) -> ApiBaseResponse<T> {
+        
         ApiBaseResponse {
-            code,
-            data: Option::<T>::from(None),
+            code: 500,
+            data: None,
             msg: msg.into(),
         }
     }
 
-
+    #[allow(dead_code)]
+    pub fn error_by_status_code<Y: Into<String>>(code: i32, msg: Y) -> ApiBaseResponse<T> {
+        ApiBaseResponse {
+            code,
+            data: None,
+            msg: msg.into(),
+        }
+    }
 }
 
 #[allow(dead_code)]
@@ -73,13 +75,13 @@ pub fn success_as_value(data: serde_json::Value) -> ApiBaseResponse<serde_json::
 }
 
 impl<T> MessageBody for ApiBaseResponse<T>
-    where
-        T: Serialize,
+where
+    T: Serialize,
 {
     type Error = std::convert::Infallible;
 
     fn size(&self) -> actix_web::body::BodySize {
-        let payload_string = ApiBaseResponse::to_string(&self);
+        let payload_string = ApiBaseResponse::to_string(self);
         let payload_bytes = Bytes::from(payload_string);
         actix_web::body::BodySize::Sized(payload_bytes.len() as u64)
     }
@@ -94,23 +96,23 @@ impl<T> MessageBody for ApiBaseResponse<T>
     }
 }
 
-impl<T> Into<Bytes> for ApiBaseResponse<T>
-    where
-        T: Serialize,
+impl<T> From<ApiBaseResponse<T>> for Bytes
+where
+    T: Serialize,
 {
-    fn into(self) -> Bytes {
-        let payload_string = Self::to_string(&self);
-        let payload_bytes = Bytes::from(payload_string);
-        payload_bytes
+    fn from(val: ApiBaseResponse<T>) -> Self {
+        let payload_string = ApiBaseResponse::<T>::to_string(&val);
+        
+        Bytes::from(payload_string)
     }
 }
 
-impl<T> Into<HttpResponse<BoxBody>> for ApiBaseResponse<T>
-    where
-        T: Serialize,
+impl<T> From<ApiBaseResponse<T>> for HttpResponse<BoxBody>
+where
+    T: Serialize,
 {
-    fn into(self) -> HttpResponse<BoxBody> {
-        let bytes: Bytes = self.into();
+    fn from(val: ApiBaseResponse<T>) -> Self {
+        let bytes: Bytes = val.into();
         let mut res = HttpResponse::with_body(StatusCode::OK, bytes);
         res.headers_mut().insert(
             header::CONTENT_TYPE,

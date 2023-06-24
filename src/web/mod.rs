@@ -1,20 +1,28 @@
 pub(crate) mod controller;
 // #[cfg(feature = "web-entrance")]
-pub(crate) mod web_entrance;
-pub(crate) mod error;
 mod entity;
-pub(crate) mod middleware;
+pub(crate) mod error;
 pub(crate) mod utils;
+pub(crate) mod web_entrance;
 
-use crate::web::controller::*;
-use actix_web::middleware::{Compress, Condition};
-use actix_web::{web, App, HttpServer};
+pub(crate) mod middleware;
+mod vo;
+
+use actix_web::{
+    middleware::{Compress, Condition},
+    web, App, HttpServer,
+};
 use log::{error, info};
-use crate::AppArgs;
-use crate::web::middleware::{ErrorHandle, TokenAuthentication};
 
 // #[cfg(feature = "web-entrance")]
 use crate::web::web_entrance::register_router;
+use crate::{
+    web::{
+        controller::*,
+        middleware::{error_handle::ErrorHandle, token_auth::TokenAuthentication},
+    },
+    AppArgs,
+};
 
 ///
 /// 注册 web 服务
@@ -28,40 +36,34 @@ pub(crate) async fn register_service() {
 
         // 微软 TTS 文本转语音 相关接口
 
-        if !args.close_official_subscribe_api{
-            app = app.service(
-                // 新版本网页接口地址 （使用api收费访问）
-                web::resource("/api/tts-ms-subscribe-api")
-                    .wrap(Condition::new(args.subscribe_api_auth_token.is_some(), TokenAuthentication::<MsTtsMsgRequestJson>::default()))
-                    .route(web::get().to(tts_ms_subscribe_api_get_controller))
-                    .route(web::post().to(tts_ms_subscribe_api_post_controller)),
-            )
-        }
+        // if !args.close_official_subscribe_api {
+        app = app.service(
+            // 新版本网页接口地址 （使用api收费访问）
+            web::resource("/api/tts-ms-subscribe")
+                .wrap(Condition::new(
+                    args.subscribe_api_auth_token.is_some(),
+                    TokenAuthentication::<MsTtsMsgRequestJson>::default(),
+                ))
+                .route(web::get().to(tts_ms_subscribe_api_get_controller))
+                .route(web::post().to(tts_ms_subscribe_api_post_controller)),
+        );
+        // }
 
-        if !args.close_official_preview_api{
-            app = app.service(
-                // 新版本网页接口地址 （免费预览）
-                web::resource("/api/tts-ms-official-preview")
-                    .route(web::get().to(tts_ms_official_preview_get_controller))
-                    .route(web::post().to(tts_ms_official_preview_post_controller)),
-            )
-        }
-
-        if !args.close_edge_free_api{
-            app = app.service(
-                // 旧版本 edge 预览接口
-                web::resource("/api/tts-ms-edge")
-                    .route(web::get().to(tts_ms_get_controller))
-                    .route(web::post().to(tts_ms_post_controller)),
-            );
-        }
+        // if !args.close_edge_free_api {
+        app = app.service(
+            // 旧版本 edge 预览接口
+            web::resource("/api/tts-ms-edge")
+                .route(web::get().to(tts_ms_get_controller))
+                .route(web::post().to(tts_ms_post_controller)),
+        );
+        // }
 
         // 根据功能
         // #[cfg(feature = "web-entrance")]
         // {
-        if args.web_ui {
-            app = app.configure(register_router);
-        }
+
+        app = app.configure(register_router);
+
         // }
         app
     });
@@ -88,7 +90,10 @@ pub(crate) async fn register_service() {
                 .unwrap();
         }
         Err(_e) => {
-            error!("启动 Api 服务失败，无法监听 {}:{}", args.listen_address, args.listen_port);
+            error!(
+                "启动 Api 服务失败，无法监听 {}:{}",
+                args.listen_address, args.listen_port
+            );
         }
     }
 }

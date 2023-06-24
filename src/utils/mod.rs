@@ -1,9 +1,7 @@
-pub mod log;
 pub(crate) mod azure_api;
-
+pub mod log;
 
 use rand::Rng;
-
 
 /// 生成随机字符
 ///
@@ -22,9 +20,8 @@ pub fn random_string(num: u32) -> String {
         ret_str.push(k);
         // println!("添加: {} , 字符串总共: {}", k, ret_str);
     }
-    return ret_str;
+    ret_str
 }
-
 
 /// 二进制数组查询
 pub fn binary_search(bin: &[u8], search: &[u8]) -> Option<usize> {

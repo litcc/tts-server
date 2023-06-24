@@ -1,0 +1,14 @@
+version="Two"
+# 固定换行符 LF
+newline_style="Unix"
+# 自动排序mod
+reorder_modules=true
+# 自动排序use
+reorder_imports=true
+# 自动优化导入 (未稳定)
+imports_granularity="Crate"
+# StdExternalCrate 导入模块分组规则 (未稳定)
+# 1. 导入来自 std、core 和 alloc 的模块需要置于前面一组。
+# 2. 导入来自 第三方库的模块 应该置于中间一组。
+# 3. 导入来自本地 self、super和crate前缀的模块，置于后面一组。
+group_imports="StdExternalCrate"

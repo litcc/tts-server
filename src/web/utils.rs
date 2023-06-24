@@ -1,19 +1,17 @@
-use std::hash::Hash;
-use actix_web::dev::{ServiceRequest};
-use actix_web::http::header;
-use actix_web::HttpMessage;
+
+
+use actix_http::h1::Payload;
+use actix_web::{dev::ServiceRequest, http::header, HttpMessage};
 use anyhow::{Error, Result};
 use bytes::BytesMut;
 use futures::StreamExt;
 use log::error;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-use actix_http::h1::Payload;
+use serde::{de::DeserializeOwned, Serialize};
 
 
 pub async fn get_request_body_to_entity<T>(sr: &mut ServiceRequest) -> Result<T>
-    where
-        T: Serialize + DeserializeOwned,
+where
+    T: Serialize + DeserializeOwned,
 {
     let content_type = sr
         .headers()
@@ -50,8 +48,7 @@ pub async fn get_request_body_to_entity<T>(sr: &mut ServiceRequest) -> Result<T>
     if bytes.is_empty() {
         return Err(Error::msg("Empty body received"));
     }
-    let serde_obj = serde_json::from_slice::<T>(&bytes.to_vec())
-        .map(|v| v)
+    let serde_obj = serde_json::from_slice::<T>(&bytes)
         .map_err(|e| {
             let err_msg = format!("Error deserializing request body: {}", e);
             error!("{}", err_msg);

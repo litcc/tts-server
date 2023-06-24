@@ -1,7 +1,8 @@
 {
-  "api_name": "ms-tts-subscribe",
+  "api_id": "tts-ms-subscribe",
+  "api_name": "微软文本转语音",
   "api_desc": "微软语音合成 - 订阅API接口",
-  "api_url": "/api/tts-ms-subscribe-api",
+  "api_url": "/api/{{api_id}}",
   "params": [
     {
       "index": 0,
@@ -15,14 +16,14 @@
       "param_type": "List",
       "param_name": "informant",
       "param_desc": "发音人",
-      "list_data_url": "/api/ms-tts/informant/{{api_name}}"
+      "list_data_url": "/api/{{api_id}}/informant"
     },
     {
       "index": 2,
       "param_type": "List",
       "param_name": "style",
       "param_desc": "音频风格",
-      "list_data_url": "/api/ms-tts/style/{{api_name}}/{{informant}}"
+      "list_data_url": "/api/{{api_id}}/{{informant}}/style"
     },
     {
       "index": 3,
@@ -47,7 +48,7 @@
       "param_type": "List",
       "param_name": "quality",
       "param_desc": "音频格式",
-      "list_data_url": "/api/ms-tts/quality"
+      "list_data_url": "/api/{{api_id}}/quality"
     }
   ]
 }

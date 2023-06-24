@@ -1,4 +1,4 @@
-use clap::{ArgEnum, ArgMatches, Command, Parser, PossibleValue, ValueEnum};
+use clap::{ArgEnum, Parser};
 use log::LevelFilter;
 use once_cell::sync::OnceCell;
 
@@ -76,8 +76,8 @@ impl AppArgs {
     pub fn parse_macro() -> &'static Self {
         static GLOBAL_ARGS: OnceCell<AppArgs> = OnceCell::new();
         GLOBAL_ARGS.get_or_init(|| {
-            let app_args = AppArgs::parse();
-            app_args
+            
+            AppArgs::parse()
         })
     }
 

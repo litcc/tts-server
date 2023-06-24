@@ -1,46 +1,51 @@
-use crate::cmd::ServerArea;
-use crate::error::TTSServerError;
-use crate::{random_string, AppArgs};
+use std::{
+    collections::{hash_map::DefaultHasher, HashMap, HashSet},
+    hash::{Hash, Hasher},
+    net::Ipv4Addr,
+    sync::Arc,
+};
+
+
 use chrono::{Duration, TimeZone, Utc};
 use event_bus::async_utils::BoxFutureSync;
-use futures::future::join_all;
-use futures::SinkExt;
+use futures::{future::join_all, SinkExt};
 use itertools::Itertools;
 use log::{debug, error, info, trace, warn};
 use once_cell::sync::{Lazy, OnceCell};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
-use std::collections::{HashMap, HashSet};
-use std::hash::{Hash, Hasher};
-use std::net::Ipv4Addr;
-use std::sync::Arc;
-
-use tokio::net::TcpStream;
-use tokio::sync::{Mutex, RwLock};
+use tokio::{
+    net::TcpStream,
+    sync::{Mutex, RwLock},
+};
 use tokio_native_tls::{native_tls, TlsStream};
-use tokio_tungstenite::tungstenite::handshake::client::{generate_key, Request};
-use tokio_tungstenite::tungstenite::http::{Method, Uri, Version};
-use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
-use tokio_tungstenite::{client_async_with_config, tungstenite, WebSocketStream};
+use tokio_tungstenite::{
+    client_async_with_config, tungstenite,
+    tungstenite::{
+        handshake::client::{generate_key, Request},
+        http::{Method, Uri, Version},
+        protocol::WebSocketConfig,
+    },
+    WebSocketStream,
+};
 
+use crate::{cmd::ServerArea, error::TTSServerError, random_string, AppArgs};
 
 // 发音人配置
 #[allow(dead_code)]
-pub(crate) const AZURE_SPEAKERS_LIST_FILE: &'static [u8] = include_bytes!("../resource/azure_voices_list.json");
+pub(crate) const AZURE_SPEAKERS_LIST_FILE: &[u8] =
+    include_bytes!("../resource/azure_voices_list.json");
 
 // 发音人配置
 #[allow(dead_code)]
-pub(crate) const EDGE_SPEAKERS_LIST_FILE: &'static [u8] = include_bytes!("../resource/edge_voices_list.json");
-
+pub(crate) const EDGE_SPEAKERS_LIST_FILE: &[u8] =
+    include_bytes!("../resource/edge_voices_list.json");
 
 /// 该程序实现的 Api 调用方式
 #[derive(Debug)]
 pub enum MsApiOrigin {
     /// 传统 edge 免费预览接口
     EdgeFree,
-    /// 官方宣传页面 免费预览接口
-    OfficialPreview,
     /// 官方 api-key 接口
     Subscription,
 }
@@ -50,31 +55,21 @@ impl TryFrom<String> for MsApiOrigin {
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         match value.as_str() {
-            "ms-tts-edge" => {
-                Ok(MsApiOrigin::EdgeFree)
-            }
-            "ms-tts-preview" => {
-                Ok(MsApiOrigin::OfficialPreview)
-            }
-            "ms-tts-subscribe" => {
-                Ok(MsApiOrigin::Subscription)
-            }
+            "ms-tts-edge" => Ok(MsApiOrigin::EdgeFree),
+            "ms-tts-subscribe" => Ok(MsApiOrigin::Subscription),
             _ => Err(TTSServerError::ProgramError("不存在的接口名称".to_owned())),
         }
     }
 }
 
-
-impl Into<String> for MsApiOrigin {
-    fn into(self) -> String {
-        match self {
+impl From<MsApiOrigin> for String {
+    fn from(val: MsApiOrigin) -> Self {
+        match val {
             MsApiOrigin::EdgeFree => "ms-tts-edge".to_owned(),
-            MsApiOrigin::OfficialPreview => "ms-tts-preview".to_owned(),
             MsApiOrigin::Subscription => "ms-tts-subscribe".to_owned(),
         }
     }
 }
-
 
 /// Azure Api 地域标识符
 #[derive(Clone, Debug, PartialEq)]
@@ -181,7 +176,7 @@ impl AzureApiRegionIdentifier {
             AzureApiRegionIdentifier::WestUs3 => "westus3",
             AzureApiRegionIdentifier::JioIndiaWest => "jioindiawest",
         }
-            .to_owned()
+        .to_owned()
     }
 
     #[allow(dead_code)]
@@ -344,7 +339,7 @@ impl TryFrom<&str> for AzureSubscribeKey {
             warn!("{:?}", err);
             return Err(err);
         }
-        let key = l.get(0).unwrap().to_string();
+        let key = l.first().unwrap().to_string();
         let region = l.get(1).unwrap().to_string();
         let region = AzureApiRegionIdentifier::from(&region)?;
         Ok(AzureSubscribeKey(key, region))
@@ -455,16 +450,16 @@ impl AzureApiSubscribeToken {
         let hash = new_token.hash_str();
         let mut k_list = loop {
             let kk = MS_TTS_SUBSCRIBE_TOKEN_LIST.try_lock();
-            if kk.is_ok() {
-                break kk.unwrap();
+            if let Ok(d) = kk {
+                break d;
             }
         };
         let arc_token = Arc::new(new_token);
-        return if k_list.contains_key(&hash) {
-            k_list.get(&hash).unwrap().clone()
-        } else {
-            k_list.insert(hash, arc_token.clone());
+        return if let std::collections::hash_map::Entry::Vacant(e) = k_list.entry(hash.clone()) {
+            e.insert(arc_token.clone());
             arc_token
+        } else {
+            k_list.get(&hash).unwrap().clone()
         };
     }
 
@@ -498,27 +493,28 @@ impl AzureApiSubscribeToken {
                 let mut tmp: Option<Vec<Arc<VoicesItem>>> = None;
 
                 for re in resp {
-                    if re.is_ok() {
-                        let d = re.unwrap().raw_data;
-                        // resp_new.push(d.raw_data);
-
-                        if let Some(t) = tmp {
-                            let intersect = t
-                                .iter()
-                                .filter(|&u| d.contains(u))
-                                .cloned()
-                                .collect::<Vec<_>>();
-                            tmp = Some(intersect);
-                        } else {
-                            tmp = Some(d.clone())
+                    match re {
+                        Ok(d)=>{
+                            let d = d.raw_data;
+                            if let Some(t) = tmp {
+                                let intersect = t
+                                    .iter()
+                                    .filter(|&u| d.contains(u))
+                                    .cloned()
+                                    .collect::<Vec<_>>();
+                                tmp = Some(intersect);
+                            } else {
+                                tmp = Some(d.clone())
+                            }
                         }
-                    } else {
-                        error!("{:?}", re.err().unwrap());
-                        std::process::exit(1);
-                    }
+                        Err(re)=>{
+                            error!("{:?}", re);
+                            std::process::exit(1);
+                        }
+                    };
                 }
-                let intersect = tmp.unwrap();
-                intersect
+                
+                tmp.unwrap()
             })
             .await;
         let arc_list = collating_list_of_pronouncers_arc(list);
@@ -533,11 +529,7 @@ impl AzureApiSubscribeToken {
         let p_time = self.oauth_get_time.lock().await;
         let old = Utc.timestamp(*p_time, 0);
         drop(p_time);
-        return if now - old > Self::get_expired_time() {
-            true
-        } else {
-            false
-        };
+        now - old > Self::get_expired_time()
     }
 
     /// 判断认证 oauth_token 是否为 None
@@ -572,8 +564,8 @@ impl AzureApiSubscribeToken {
     pub(crate) async fn get_text_to_speech_connection<T>(
         api_info: &T,
     ) -> Result<WebSocketStream<TlsStream<TcpStream>>, TTSServerError>
-        where
-            T: AzureAuthKey + Sync + Send,
+    where
+        T: AzureAuthKey + Sync + Send,
     {
         let region = api_info.get_region_identifier().await?.value();
         let oauth_token = api_info.get_oauth_token().await?;
@@ -656,11 +648,11 @@ impl AzureApiSubscribeToken {
                 accept_unmasked_frames: false,
             }),
         )
-            .await
-            .map_err(|e| {
-                error!("websocket 握手失败 {:?}", e);
-                TTSServerError::ProgramError(format!("websocket 握手失败! {:?}", e))
-            })?;
+        .await
+        .map_err(|e| {
+            error!("websocket 握手失败 {:?}", e);
+            TTSServerError::ProgramError(format!("websocket 握手失败! {:?}", e))
+        })?;
 
         Ok(websocket.0)
     }
@@ -801,367 +793,10 @@ impl AzureApiGenerateXMML for AzureApiSubscribeToken {
     }
 }
 
-///
-/// 微软官网预览页面api接口
-#[derive(Debug)]
-pub(crate) struct AzureApiPreviewFreeToken {
-    /*region_identifier: Option<AzureApiRegionIdentifier>,
-    oauth_token: Option<String>,
-    oauth_token_base64: Option<String>,
-    oauth_get_time: i64,*/
-    voices_list: RwLock<Option<Vec<Arc<VoicesItem>>>>,
-}
-
 //
 // unsafe impl Sync for AzureApiPreviewFreeToken {}
 //
 // unsafe impl Send for AzureApiPreviewFreeToken {}
-
-impl AzureApiPreviewFreeToken {
-    /// 过期时间
-    #[allow(dead_code)]
-    const EXPIRED_TIME: i64 = 4;
-
-    const USER_AGENT: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/107.0.0.0 Safari/537.36 Edg/107.0.1379.1";
-
-    /// 获取过期时间
-    #[allow(dead_code)]
-    fn get_expired_time() -> Duration {
-        Duration::minutes(AzureApiPreviewFreeToken::EXPIRED_TIME)
-    }
-
-    /// 实例化预览版 Api key
-    #[allow(dead_code)]
-    pub fn new() -> Arc<Self> {
-        static INSTANCE: OnceCell<Arc<AzureApiPreviewFreeToken>> = OnceCell::new();
-        INSTANCE
-            .get_or_init(|| {
-                Arc::new(Self {
-                    voices_list: RwLock::new(None),
-                })
-            })
-            .clone()
-    }
-
-    async fn get_vices_list_request() -> Result<Vec<Arc<VoicesItem>>, TTSServerError> {
-        let url = "https://eastus.api.speech.microsoft.com/cognitiveservices/voices/list";
-        let resp = reqwest::Client::new()
-            .get(url)
-            .header("Host", "eastus.api.speech.microsoft.com")
-            .header("Accept", "*/*")
-            .header("accept-encoding", "gzip, deflate, br")
-            .header(
-                "accept-language",
-                "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-            )
-            .header("origin", "https://azure.microsoft.com")
-            .header("referer", "https://azure.microsoft.com/")
-            .header(
-                "sec-ch-ua",
-                r#""Microsoft Edge";v="105", " Not;A Brand";v="99", "Chromium";v="105""#,
-            )
-            .header("sec-ch-ua-mobile", r#"?0"#)
-            .header("sec-ch-ua-platform", r#""Windows""#)
-            .header("sec-fetch-dest", r#"empty"#)
-            .header("sec-fetch-mode", "cors")
-            .header("sec-fetch-site", "same-site")
-            .header("user-agent", Self::USER_AGENT)
-            .send()
-            .await
-            .map_err(|e| {
-                let err = TTSServerError::ThirdPartyApiCallFailed(format!("{:?}", e));
-                error!("request build err: {:#?}",e);
-                err
-            })?;
-
-        let body = if resp.status() == 200 {
-            Ok(resp.bytes().await.map_err(|e| {
-                let err = TTSServerError::ProgramError(format!("Error parsing response body! {:?}", e));
-                error!("{:?}",err);
-                err
-            })?)
-        } else {
-            error!("{:#?}", resp);
-            Err(TTSServerError::ThirdPartyApiCallFailed(
-                "Third-party interface corresponding error".to_owned(),
-            ))
-        }?;
-
-        let voice_list: Vec<VoicesItem> = serde_json::from_slice(&body).map_err(|e| {
-            error!("{:?}", e);
-            TTSServerError::ProgramError(format!("Failed to deserialize voice list! {:?}", e))
-        })?;
-
-        let mut voice_arc_list = Vec::new();
-        for voice in voice_list {
-            voice_arc_list.push(Arc::new(voice))
-        }
-        Ok(voice_arc_list)
-    }
-
-    /*/// 判断认证 Token 是否过期
-    #[inline]
-    pub fn is_expired(&self) -> bool {
-        let now = Utc::now();
-        // let now = Local::now().timestamp();
-        let old = Utc.timestamp(self.oauth_get_time, 0);
-        return if now - old > Self::get_expired_time() {
-            true
-        } else {
-            false
-        };
-    }*/
-    /*
-    /// 从官方网站获取key
-    #[inline]
-    pub async fn get_auth_key_by_official_website(&mut self) -> Result<(), TTSServerError> {
-
-        let resp = reqwest::Client::new()
-            .get("https://azure.microsoft.com/zh-cn/services/cognitive-services/text-to-speech/")
-            .send()
-            .await
-            .map_err(|e| {
-                error!("{:?}", e);
-                TTSServerError::ProgramError(format!("获取 认证key 失败 {:?}", e))
-            })?;
-        let html = resp.text().await.map_err(|e| {
-            error!("{:?}", e);
-            TTSServerError::ProgramError(format!("获取响应体错误 {:?}", e))
-        })?;
-
-        let token = Regex::new(r#"token: "([a-zA-Z0-9\._-]+)""#)
-            .map_err(|e| {
-                error!("{:?}", e);
-                TTSServerError::ProgramError(format!("正则匹配错误 {:?}", e))
-            })?
-            .captures(&html)
-            .map(|i| match i {
-                Some(t) => {
-                    let df = t.get(1).unwrap().as_str();
-                    debug!("token获取成功：{}", df);
-                    Ok(df.to_owned())
-                }
-                None => {
-                    error!("获取 token 失败");
-                    Err(TTSServerError::ProgramError(format!("获取 token 失败")))
-                }
-            })
-            .map_err(|e| {
-                error!("{:?}", e);
-                TTSServerError::ProgramError(format!("获取 token 失败 {:?}", e))
-            })??;
-
-        let region = Regex::new(r#"region: "([a-z0-9]+)""#)
-            .map_err(|e| {
-                error!("{:?}", e);
-                TTSServerError::ProgramError(format!("正则匹配错误 {:?}", e))
-            })?
-            .captures(&html)
-            .map(|i| match i {
-                Some(t) => {
-                    let df = t.get(1).unwrap().as_str();
-                    debug!("region获取成功：{}", df);
-                    Ok(df.to_owned())
-                }
-                None => {
-                    error!("获取 region 失败");
-                    Err(TTSServerError::ProgramError(format!("获取 region 失败")))
-                }
-            })
-            .map_err(|e| {
-                error!("{:?}", e);
-                TTSServerError::ProgramError(format!("获取 region 失败 {:?}", e))
-            })??;
-
-        self.oauth_token_base64.replace(base64::encode(&token));
-        self.oauth_token.replace(token);
-        self.region_identifier.replace(AzureApiRegionIdentifier::from(&region)?);
-        self.oauth_get_time = Utc::now().timestamp();
-
-        Ok(())
-    }*/
-}
-
-/// 实现微软官网免费预览接口获取发音人列表
-impl AzureApiSpeakerList for AzureApiPreviewFreeToken {
-    #[inline]
-    fn get_vices_list(&self) -> BoxFutureSync<Result<VoicesList, TTSServerError>> {
-        Box::pin(async move {
-            if self.voices_list.read().await.is_none() {
-                let kk = if let Ok(d) = Self::get_vices_list_request().await {
-                    d
-                } else {
-                    warn!("请求 AzureApiPreviewFreeToken 发音人列表出错，改用缓存数据！");
-                    let data_str = String::from_utf8(AZURE_SPEAKERS_LIST_FILE.to_vec()).unwrap();
-                    let tmp_list_1: Vec<VoicesItem> = serde_json::from_str(&data_str).unwrap();
-                    let mut voice_arc_list = Vec::new();
-                    for voice in tmp_list_1 {
-                        voice_arc_list.push(Arc::new(voice))
-                    }
-                    voice_arc_list
-                };
-                self.voices_list.write().await.replace(kk);
-            }
-            let data = self.voices_list.read().await;
-            let list = collating_list_of_pronouncers_arc(data.as_ref().unwrap());
-            Ok(list)
-        })
-    }
-}
-
-/// 实现微软官网Api订阅接口获取新连接
-impl AzureApiNewWebsocket for AzureApiPreviewFreeToken {
-    #[inline]
-    fn get_connection(
-        &self,
-    ) -> BoxFutureSync<Result<WebSocketStream<TlsStream<TcpStream>>, TTSServerError>> {
-        Box::pin(async move {
-            let connect_id = random_string(32);
-            let connect_domain = "eastus.api.speech.microsoft.com";
-            let user_agent = Self::USER_AGENT;
-            let uri = Uri::builder()
-                .scheme("wss")
-                .authority(connect_domain)
-                .path_and_query(format!(
-                    "/cognitiveservices/websocket/v1?TrafficType=AzureDemo&Authorization=bearer%20undefined&X-ConnectionId={}",
-                    &connect_id
-                ))
-                .build()
-                .map_err(|e| {
-                    let err = format!("AzureApiPreviewFreeToken 请求端点构建失败 {:?}", e);
-                    error!("{}", err);
-                    TTSServerError::ProgramError(err)
-                })?;
-
-            let request_builder = Request::builder()
-                .uri(uri)
-                .method(Method::GET)
-                // .header("Authorization", format!("Bearer {}", &oauth_token_base64))
-                .header("Cache-Control", "no-cache")
-                .header("Pragma", "no-cache")
-                .header("Accept", "*/*")
-                .header("Accept-Encoding", "gzip, deflate, br")
-                .header(
-                    "Accept-Language",
-                    "zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6",
-                )
-                .header("User-Agent", user_agent)
-                .header("Host", connect_domain)
-                .header("Connection", "Upgrade")
-                .header("Upgrade", "websocket")
-                .header("Sec-WebSocket-Version", "13")
-                .header("Sec-WebSocket-Key", generate_key())
-                .header(
-                    "Sec-webSocket-Extension",
-                    "permessage-deflate; client_max_window_bits",
-                )
-                .version(Version::HTTP_11);
-            let request = request_builder.body(()).map_err(|e| {
-                let err = format!("AzureApiPreviewFreeToken 请求体构建失败 {:?}", e);
-                error!("{}", err);
-                TTSServerError::ProgramError(err)
-            })?;
-
-            // let jj = native_tls::TlsConnector::new().unwrap();
-            let jj = native_tls::TlsConnector::builder()
-                .use_sni(false)
-                .build()
-                .map_err(|e| {
-                    let err = format!("创建Tcp连接失败! {:?}", e);
-                    error!("{}", err);
-                    TTSServerError::ProgramError(err)
-                })?;
-            let config = tokio_native_tls::TlsConnector::from(jj);
-
-            let sock = TcpStream::connect(format!("{}:443", &connect_domain))
-                .await
-                .map_err(|e| {
-                    let err = format!(
-                        "连接到微软服务器发生异常，tcp握手失败! 请检查网络! {:?}",
-                        e
-                    );
-                    error!("{}", err);
-                    TTSServerError::ProgramError(err)
-                })?;
-
-            let tsl_stream = config.connect(&connect_domain, sock).await.map_err(|e| {
-                let err = format!("tsl 握手失败! {:?}", e);
-                error!("{}", err);
-                TTSServerError::ProgramError(err)
-            })?;
-
-            let websocket = client_async_with_config(
-                request,
-                tsl_stream,
-                Some(WebSocketConfig {
-                    max_send_queue: None,
-                    max_message_size: None,
-                    max_frame_size: None,
-                    accept_unmasked_frames: false,
-                }),
-            )
-                .await
-                .map_err(|e| {
-                    let err = format!("websocket 握手失败! {:?}", e);
-                    error!("{}", err);
-                    TTSServerError::ProgramError(err)
-                })?;
-
-            let mut new_socket = websocket.0;
-
-            let mut msg1 = String::new();
-            let create_time = Utc::now();
-            let time = format!("{:?}", create_time);
-            msg1.push_str(format!("Path: speech.config\r\nX-Timestamp: {}\r\nContent-Type: application/json; charset=utf-8", &time).as_str());
-            msg1.push_str("\r\n\r\n");
-            msg1.push_str(r#"{"context":{"system":{"name":"SpeechSDK","version":"1.19.0","build":"JavaScript","lang":"JavaScript"},"os":{"platform":"Browser/Win32","name":""#);
-            msg1.push_str(user_agent);
-            msg1.push_str(r#"","version":""#);
-            msg1.push_str(&user_agent[8..user_agent.len()]);
-            msg1.push_str(r#""}}}"#);
-            // xmml_data.push(msg1);
-            new_socket
-                .send(tungstenite::Message::Text(msg1))
-                .await
-                .map_err(|e| {
-                    let err = "发送配置数据错误".to_owned();
-                    error!("{}", err);
-                    TTSServerError::ProgramError(err)
-                })?;
-
-            Ok(new_socket)
-        })
-    }
-}
-
-impl AzureApiGenerateXMML for AzureApiPreviewFreeToken {
-    fn generate_xmml(
-        &self,
-        data: MsTtsMsgRequest,
-    ) -> BoxFutureSync<Result<Vec<String>, TTSServerError>> {
-        Box::pin(async move {
-            let mut xmml_data = Vec::new();
-            let create_time = Utc::now();
-            let time = format!("{:?}", create_time);
-
-            let mut msg1 = String::new();
-
-            msg1.push_str("Path: synthesis.context\r\n");
-            msg1.push_str(format!("X-RequestId: {}\r\n", data.request_id).as_str());
-            msg1.push_str(format!("X-Timestamp: {}\r\n", time).as_str());
-            msg1.push_str("Content-Type: application/json\r\n\r\n");
-            msg1.push_str(r#"{"synthesis":{"audio":{"metadataOptions":{"bookmarkEnabled":false,"sentenceBoundaryEnabled":false,"visemeEnabled":false,"wordBoundaryEnabled":false},"outputFormat":"audio-24khz-96kbitrate-mono-mp3"},"language":{"autoDetection":false}}}"#);
-            xmml_data.push(msg1);
-
-            let mut msg2 = String::new();
-            msg2.push_str(format!("Path: ssml\r\nX-RequestId: {}\r\nX-Timestamp:{}\r\nContent-Type:application/ssml+xml\r\n\r\n", &data.request_id, &time).as_str());
-            msg2.push_str(format!("<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xmlns:mstts='https://www.w3.org/2001/mstts' xmlns:emo='http://www.w3.org/2009/10/emotionml' xml:lang='en-US'><voice name='{}'><mstts:express-as style='{}' ><prosody rate ='{}%' pitch='{}%'>{}</prosody></mstts:express-as></voice></speak>",
-                                  data.informant, data.style, data.rate, data.pitch, data.text).as_str());
-            xmml_data.push(msg2);
-            Ok(xmml_data)
-        })
-    }
-}
 
 ///
 /// 微软 Edge浏览器 免费预览 api
@@ -1205,10 +840,8 @@ impl AzureApiEdgeFree {
     ];
 
     #[allow(dead_code)]
-    pub(crate) const MS_TTS_SERVER_CHINA_TW_LIST: [&'static str; 2] = [
-        "34.81.240.201",
-        "34.80.106.199",
-    ];
+    pub(crate) const MS_TTS_SERVER_CHINA_TW_LIST: [&'static str; 2] =
+        ["34.81.240.201", "34.80.106.199"];
 
     const USER_AGENT: &'static str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/102.0.5005.63 Safari/537.36 Edg/102.0.1245.39";
 
@@ -1229,11 +862,12 @@ impl AzureApiEdgeFree {
     /// edge 免费版本
     /// 根据命令行中地域配置进行连接
     ///
-    pub(crate) async fn new_websocket_edge_free() -> Result<WebSocketStream<TlsStream<TcpStream>>, TTSServerError> {
+    pub(crate) async fn new_websocket_edge_free()
+    -> Result<WebSocketStream<TlsStream<TcpStream>>, TTSServerError> {
         #[cfg(test)]
-            let args = AppArgs::test_parse_macro(&[]);
+        let args = AppArgs::test_parse_macro(&[]);
         #[cfg(not(test))]
-            let args = AppArgs::parse_macro();
+        let args = AppArgs::parse_macro();
         debug!("指定加速ip {:#?}", args.server_area);
         match args.server_area {
             ServerArea::Default => {
@@ -1250,7 +884,7 @@ impl AzureApiEdgeFree {
                         .get(select)
                         .unwrap(),
                 ))
-                    .await
+                .await
             }
             ServerArea::ChinaHK => {
                 info!("连接至香港服务器");
@@ -1261,7 +895,7 @@ impl AzureApiEdgeFree {
                         .get(select)
                         .unwrap(),
                 ))
-                    .await
+                .await
             }
             ServerArea::ChinaTW => {
                 info!("连接至台湾服务器");
@@ -1272,7 +906,7 @@ impl AzureApiEdgeFree {
                         .get(select)
                         .unwrap(),
                 ))
-                    .await
+                .await
             }
         }
     }
@@ -1351,17 +985,17 @@ impl AzureApiEdgeFree {
             Some(s) => {
                 info!("连接至 {:?}", s);
 
-                let kk: Vec<_> = s.split(".").map(|x| x.parse::<u8>().unwrap()).collect();
+                let kk: Vec<_> = s.split('.').map(|x| x.parse::<u8>().unwrap()).collect();
                 TcpStream::connect((
                     Ipv4Addr::new(
-                        kk.get(0).unwrap().clone(),
-                        kk.get(1).unwrap().clone(),
-                        kk.get(2).unwrap().clone(),
-                        kk.get(3).unwrap().clone(),
+                        *kk.first().unwrap(),
+                        *kk.get(1).unwrap(),
+                        *kk.get(2).unwrap(),
+                        *kk.get(3).unwrap(),
                     ),
                     443,
                 ))
-                    .await
+                .await
             }
             None => {
                 info!("连接至 speech.platform.bing.com");
@@ -1395,9 +1029,9 @@ impl AzureApiEdgeFree {
                 accept_unmasked_frames: false,
             }),
         )
-            .await;
+        .await;
 
-        return match websocket {
+        match websocket {
             Ok(_websocket) => {
                 trace!("websocket 握手成功");
                 Ok(_websocket.0)
@@ -1406,7 +1040,7 @@ impl AzureApiEdgeFree {
                 "websocket 握手失败! {:?}",
                 e2
             ))),
-        };
+        }
     }
 
     async fn get_vices_list_request() -> Result<Vec<Arc<VoicesItem>>, TTSServerError> {
@@ -1422,26 +1056,14 @@ impl AzureApiEdgeFree {
                 "sec-ch-ua",
                 r#""Microsoft Edge";v="107", "Chromium";v="107", "Not=A?Brand";v="24""#,
             )
-            .header(
-                "sec-ch-ua-mobile",
-                r#"?0"#,
-            )
+            .header("sec-ch-ua-mobile", r#"?0"#)
             .header("User-Agent", Self::USER_AGENT)
             .header("sec-ch-ua-platform", r#""Windows""#)
             .header("Accept", "*/*")
-            .header(
-                "X-Edge-Shopping-Flag",
-                "1",
-            ).header(
-            "Sec-Fetch-Site",
-            "none",
-        ).header(
-            "Sec-Fetch-Mode",
-            "cors",
-        ).header(
-            "Sec-Fetch-Dest",
-            "empty",
-        )
+            .header("X-Edge-Shopping-Flag", "1")
+            .header("Sec-Fetch-Site", "none")
+            .header("Sec-Fetch-Mode", "cors")
+            .header("Sec-Fetch-Dest", "empty")
             .header("Accept-Encoding", "gzip, deflate, br")
             .header(
                 "Accept-Language",
@@ -1450,7 +1072,7 @@ impl AzureApiEdgeFree {
             .send()
             .await
             .map_err(|e| {
-                error!("request build err: {:#?}",e);
+                error!("request build err: {:#?}", e);
                 TTSServerError::ThirdPartyApiCallFailed(format!("{:?}", e.to_string()))
             })?;
 
@@ -1518,14 +1140,14 @@ impl AzureApiNewWebsocket for AzureApiEdgeFree {
             let time = format!("{:?}", create_time);
             msg1.push_str(format!("X-Timestamp: {}\r\nContent-Type: application/json; charset=utf-8\r\nPath: speech.config", &time).as_str());
             msg1.push_str("\r\n\r\n");
-            msg1.push_str(r#"{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"webm-24khz-16bit-mono-opus"}}}}"#);
+            msg1.push_str(r#"{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"false"},"outputFormat":"audio-24khz-96kbitrate-mono-mp3"}}}}"#);
             // xmml_data.push(msg1);
             new_socket
                 .send(tungstenite::Message::Text(msg1))
                 .await
                 .map_err(|e| {
                     let err = format!("发送配置数据错误; {:?}", e);
-                    error!("{}",err);
+                    error!("{}", err);
                     TTSServerError::ProgramError(err)
                 })?;
             Ok(new_socket)
@@ -1555,8 +1177,8 @@ impl AzureApiGenerateXMML for AzureApiEdgeFree {
 ///
 /// 微软文本转语音认证 token 获取，使用官方 Api
 pub(crate) async fn get_oauth_token<T>(api_info: &T) -> Result<String, TTSServerError>
-    where
-        T: AzureAuthSubscription + AzureAuthKey + Sync + Send,
+where
+    T: AzureAuthSubscription + AzureAuthKey + Sync + Send,
 {
     let region = api_info.get_region_identifier().await?.value();
     let key = api_info.get_subscription_key().await?;
@@ -1579,7 +1201,7 @@ pub(crate) async fn get_oauth_token<T>(api_info: &T) -> Result<String, TTSServer
     let body = if resp.status() == 200 {
         Ok(resp.bytes().await.map_err(|e| {
             error!("Error parsing response body! {:#?}", e);
-            TTSServerError::ProgramError(format!("Error parsing response body! {}", e.to_string()))
+            TTSServerError::ProgramError(format!("Error parsing response body! {}", e))
         })?)
     } else if resp.status() == 401 {
         error!(
@@ -1596,10 +1218,10 @@ pub(crate) async fn get_oauth_token<T>(api_info: &T) -> Result<String, TTSServer
         ))
     }?;
 
-    Ok(String::from_utf8(body.to_vec()).map_err(|e| {
+    String::from_utf8(body.to_vec()).map_err(|e| {
         error!("{:#?}", e);
-        TTSServerError::ProgramError(format!("Binary to string error! {}", e.to_string()))
-    })?)
+        TTSServerError::ProgramError(format!("Binary to string error! {}", e))
+    })
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1653,7 +1275,6 @@ pub enum VoicesItem {
     },
 }
 
-
 // ///
 // /// Azure 官方文本转语音 发音人结构体
 // #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1698,45 +1319,47 @@ pub enum VoicesItem {
 impl VoicesItem {
     #[inline]
     pub fn get_short_name(&self) -> String {
-        return match self {
-            VoicesItem::AzureApi { short_name, .. } => { short_name.clone() }
-            VoicesItem::EdgeApi { short_name, .. } => { short_name.clone() }
-        };
+        match self {
+            VoicesItem::AzureApi { short_name, .. } => short_name.clone(),
+            VoicesItem::EdgeApi { short_name, .. } => short_name.clone(),
+        }
     }
     #[inline]
     pub fn get_local(&self) -> &str {
         return match self {
-            VoicesItem::AzureApi { locale, .. } => { locale.as_str() }
-            VoicesItem::EdgeApi { locale, .. } => { locale.as_str() }
+            VoicesItem::AzureApi { locale, .. } => locale.as_str(),
+            VoicesItem::EdgeApi { locale, .. } => locale.as_str(),
         };
     }
     #[inline]
     pub fn get_style(&self) -> Option<Vec<String>> {
         return match self {
-            VoicesItem::AzureApi { style_list, .. } => { style_list.clone() }
+            VoicesItem::AzureApi { style_list, .. } => style_list.clone(),
             VoicesItem::EdgeApi { voice_tag, .. } => {
-                if let Some(e0) = voice_tag.get("ContentCategories") {
-                    Some(e0.clone())
-                } else {
-                    None
-                }
+                voice_tag.get("ContentCategories").cloned()
             }
         };
     }
 
     pub fn get_desc(&self) -> String {
-        return match self {
-            VoicesItem::AzureApi { voice_type, local_name, display_name, .. } => {
+        match self {
+            VoicesItem::AzureApi {
+                voice_type,
+                local_name,
+                display_name,
+                ..
+            } => {
                 if voice_type == "Neural" {
-                    format!("Microsoft {} Online (Natural) - {}", display_name, local_name)
+                    format!(
+                        "Microsoft {} Online (Natural) - {}",
+                        display_name, local_name
+                    )
                 } else {
                     format!("Microsoft {} Online - {}", display_name, local_name)
                 }
             }
-            VoicesItem::EdgeApi { friendly_name, .. } => {
-                friendly_name.clone()
-            }
-        };
+            VoicesItem::EdgeApi { friendly_name, .. } => friendly_name.clone(),
+        }
     }
 }
 
@@ -1748,7 +1371,11 @@ impl PartialEq for VoicesItem {
                 short_name: short_name1,
                 ..
             } => {
-                if let VoicesItem::AzureApi { short_name: short_name2, .. } = other {
+                if let VoicesItem::AzureApi {
+                    short_name: short_name2,
+                    ..
+                } = other
+                {
                     short_name1 == short_name2
                 } else {
                     false
@@ -1758,7 +1385,11 @@ impl PartialEq for VoicesItem {
                 short_name: short_name1,
                 ..
             } => {
-                if let VoicesItem::EdgeApi { short_name: short_name2, .. } = other {
+                if let VoicesItem::EdgeApi {
+                    short_name: short_name2,
+                    ..
+                } = other
+                {
                     short_name1 == short_name2
                 } else {
                     false
@@ -1771,8 +1402,8 @@ impl PartialEq for VoicesItem {
 ///
 /// 根据 Api key 获取文本转语音 发音人列表
 async fn get_voices_list_by_authkey<T>(api_info: &T) -> Result<Vec<VoicesItem>, TTSServerError>
-    where
-        T: AzureAuthKey + Sync + Send,
+where
+    T: AzureAuthKey + Sync + Send,
 {
     let region = api_info.get_region_identifier().await?.value();
     let oauth_token = api_info.get_oauth_token().await?;
@@ -1831,16 +1462,16 @@ pub(crate) fn collating_list_of_pronouncers(list: Vec<VoicesItem>) -> VoicesList
         by_locale_map.insert(key.to_owned(), locale_vec_list);
     }
 
-    let v_list = VoicesList {
+    
+    VoicesList {
         voices_name_list,
         raw_data,
         by_voices_name_map,
         by_locale_map,
-    };
-    return v_list;
+    }
 }
 
-pub(crate) fn collating_list_of_pronouncers_arc(raw_data: &Vec<Arc<VoicesItem>>) -> VoicesList {
+pub(crate) fn collating_list_of_pronouncers_arc(raw_data: &[Arc<VoicesItem>]) -> VoicesList {
     let mut voices_name_list: HashSet<String> = HashSet::new();
     let mut by_voices_name_map: HashMap<String, Arc<VoicesItem>> = HashMap::new();
 
@@ -1862,11 +1493,11 @@ pub(crate) fn collating_list_of_pronouncers_arc(raw_data: &Vec<Arc<VoicesItem>>)
         by_locale_map.insert(key.to_owned(), locale_vec_list);
     }
 
-    let v_list = VoicesList {
+    
+    VoicesList {
         voices_name_list,
-        raw_data: raw_data.clone(),
+        raw_data: raw_data.to_owned(),
         by_voices_name_map,
         by_locale_map,
-    };
-    return v_list;
+    }
 }

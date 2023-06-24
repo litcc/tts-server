@@ -1,28 +1,29 @@
-
 pub mod ms_tts;
 
+pub(crate) mod cmd;
 pub(crate) mod error;
 pub(crate) mod utils;
 pub(crate) mod web;
-pub(crate) mod cmd;
 
 #[cfg(test)]
 pub(crate) mod tests;
 
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
-
-use crate::utils::random_string;
-use event_bus::core::EventBus;
-use event_bus::message::VertxMessage;
+use anyhow::Result;
+use event_bus::{core::EventBus, message::VertxMessage};
 pub use log::*;
 use once_cell::sync::{Lazy, OnceCell};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use utils::log::init_log;
-use crate::cmd::AppArgs;
-use anyhow::Result;
 use tokio::runtime::Runtime;
-use crate::utils::azure_api::MS_TTS_QUALITY_LIST;
+use utils::log::init_log;
+
+use crate::{
+    cmd::AppArgs,
+    utils::{azure_api::MS_TTS_QUALITY_LIST, random_string},
+};
 
 pub(crate) static GLOBAL_EB: Lazy<Arc<EventBus<VertxMessage>>> = Lazy::new(|| {
     let eb = EventBus::<VertxMessage>::new(Default::default());
@@ -33,7 +34,7 @@ pub(crate) static GLOBAL_EB: Lazy<Arc<EventBus<VertxMessage>>> = Lazy::new(|| {
 // async
 async fn main_async() -> Result<()> {
     let args = AppArgs::parse_macro();
-    debug!("程序参数: {:#?}",args);
+    debug!("程序参数: {:#?}", args);
     if args.show_quality_list {
         println!(
             "当前可使用的音频参数有: (注意：Edge免费接口可能个别音频参数无法使用，是正常情况，是因为微软不允许滥用！) \n{:?}",
@@ -56,13 +57,16 @@ async fn main_async() -> Result<()> {
     Ok(())
 }
 
-
-
 static GLOBAL_RT: OnceCell<Runtime> = OnceCell::new();
 
 fn main() -> Result<()> {
     let args = AppArgs::parse_macro();
-    init_log(args.log_level,Some(args.log_to_file),Some(&args.log_path),None);
+    init_log(
+        args.log_level,
+        Some(args.log_to_file),
+        Some(&args.log_path),
+        None,
+    );
 
     GLOBAL_RT
         .get_or_init(|| {

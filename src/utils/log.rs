@@ -1,19 +1,29 @@
 use std::collections::HashMap;
+
 use log::{debug, LevelFilter};
-use log4rs;
-use log4rs::append::console::ConsoleAppender;
-use log4rs::append::file::FileAppender;
-use log4rs::config::{Appender, Config, Logger, Root};
-use log4rs::encode::pattern::PatternEncoder;
+use log4rs::{
+    self,
+    append::{console::ConsoleAppender, file::FileAppender},
+    config::{Appender, Config, Logger, Root},
+    encode::pattern::PatternEncoder,
+};
 
 ///
 /// 初始化日志
 #[allow(dead_code)]
-pub(crate) fn init_log(log_level: LevelFilter, log_to_file: Option<bool>, log_path: Option<&str>, custom_level: Option<HashMap<String, LevelFilter>>) {
+pub(crate) fn init_log(
+    log_level: LevelFilter,
+    log_to_file: Option<bool>,
+    log_path: Option<&str>,
+    custom_level: Option<HashMap<String, LevelFilter>>,
+) {
     let log_to_file = log_to_file.unwrap_or(false);
-    let log_path_default = format!("{}/tts-server/server.log", std::env::temp_dir().to_str().unwrap());
-    let log_path = if log_path.is_some() {
-        log_path.unwrap().to_owned()
+    let log_path_default = format!(
+        "{}/tts-server/server.log",
+        std::env::temp_dir().to_str().unwrap()
+    );
+    let log_path = if let Some(p) = log_path {
+        p.to_owned()
     } else {
         log_path_default
     };
@@ -37,8 +47,7 @@ pub(crate) fn init_log(log_level: LevelFilter, log_to_file: Option<bool>, log_pa
     }
     if let Some(c_l) = custom_level {
         for x in c_l {
-            config = config
-                .logger(Logger::builder().build(x.0, x.1.clone()))
+            config = config.logger(Logger::builder().build(x.0, x.1))
         }
     }
 
@@ -54,23 +63,26 @@ pub(crate) fn init_log(log_level: LevelFilter, log_to_file: Option<bool>, log_pa
     let config_tmp = config.build(root.build(log_level)).unwrap();
 
     log4rs::init_config(config_tmp).unwrap();
-    debug!("日志文件路径: {}",log_path);
+    if log_to_file {
+        debug!("日志文件路径: {}", log_path);
+    }
 }
-
 
 ///
 /// 初始化测试日志
 #[allow(dead_code)]
 #[cfg(test)]
-pub(crate) fn init_test_log(log_level: LevelFilter, custom_level: Option<HashMap<String, LevelFilter>>) {
+pub(crate) fn init_test_log(
+    log_level: LevelFilter,
+    custom_level: Option<HashMap<String, LevelFilter>>,
+) {
     let stdout = ConsoleAppender::builder()
         .encoder(Box::new(PatternEncoder::new(
             "{d(%Y-%m-%d %H:%M:%S.%f)} [{t}] {T} {I} {h({l})} - {m}{n}",
         )))
         .build();
     let mut config = Config::builder();
-    config = config
-        .appender(Appender::builder().build("stdout", Box::new(stdout)));
+    config = config.appender(Appender::builder().build("stdout", Box::new(stdout)));
     // .logger(Logger::builder().build("reqwest", LevelFilter::Warn))
     // .logger(Logger::builder().build("rustls", LevelFilter::Warn))
     // .logger(Logger::builder().build("actix_server::builder", LevelFilter::Warn))
@@ -78,15 +90,12 @@ pub(crate) fn init_test_log(log_level: LevelFilter, custom_level: Option<HashMap
 
     if let Some(c_l) = custom_level {
         for x in c_l {
-            config = config
-                .logger(Logger::builder().build(x.0, x.1.clone()))
+            config = config.logger(Logger::builder().build(x.0, x.1))
         }
     }
 
     let root = Root::builder().appender("stdout");
-    let config_tmp = config
-        .build(root.build(log_level))
-        .unwrap();
+    let config_tmp = config.build(root.build(log_level)).unwrap();
 
     log4rs::init_config(config_tmp).unwrap();
 }

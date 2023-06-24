@@ -1,5 +1,7 @@
 use std::fmt::{Display, Formatter};
+
 use actix_web::{error, HttpResponse};
+
 use crate::web::entity::ApiBaseResponse;
 
 #[derive(Debug)]
@@ -9,13 +11,13 @@ pub struct ControllerError {
 }
 
 impl ControllerError {
-    pub fn new<T:Into<String>>(msg: T) -> Self {
+    pub fn new<T: Into<String>>(msg: T) -> Self {
         ControllerError {
             code: 500,
             msg: msg.into(),
         }
     }
-    pub fn from_status_code<T:Into<String>>(code: i32, msg:T) -> Self {
+    pub fn from_status_code<T: Into<String>>(code: i32, msg: T) -> Self {
         ControllerError {
             code,
             msg: msg.into(),

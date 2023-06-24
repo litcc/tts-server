@@ -1,30 +1,31 @@
 {
-  "api_name": "ms-tts-edge",
+  "api_id": "ms-tts-edge",
+  "api_name": "微软文本转语音",
   "api_desc": "微软语音合成 - Edge浏览器免费接口",
-  "api_url": "/api/tts-ms-edge",
+  "api_url": "/api/{{api_id}}",
   "params": [
     {
       "index": 0,
-      "param_type": "Text",
-      "param_name": "text",
-      "param_desc": "待生成文本",
-      "max_len": 1000
-    },
-    {
-      "index": 1,
       "param_type": "List",
       "param_name": "informant",
       "param_desc": "发音人",
-      "list_data_url": "/api/ms-tts/informant/{{api_name}}"
+      "list_data_url": "/api/{{api_id}}/informant"
     },
     {
-      "index": 3,
+      "index": 1,
       "param_type": "Float",
       "param_name": "rate",
       "param_desc": "语速",
       "min_value": 0.0,
       "max_value": 3.0,
       "default_value": 1.0
+    },
+    {
+      "index": 2,
+      "param_type": "Text",
+      "param_name": "text",
+      "param_desc": "待生成文本",
+      "max_len": 1000
     }
   ]
 }
